@@ -35,7 +35,7 @@ _usec_delay(250_000)      ; Give the hardware some time to stabilize.
 
 ; Special code. If you want to use the BROADCAST_ADDRESS address for the morae
 ; functionality then remove the comments from the following section.
-pragma eedata BROADCAST_ADDRESS; This will place it at EEPROM address 0.
+; pragma eedata BROADCAST_ADDRESS; This will place it at EEPROM address 0.
 
 ; =========================== Constants & Variables ==========================
 
