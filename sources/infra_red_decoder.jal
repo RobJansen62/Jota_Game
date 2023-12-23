@@ -1,0 +1,292 @@
+;===============================================================================
+; Title : Infra-Red decoder for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-18 : Initial version.
+;
+; Compiler: 2.5r8
+;
+; Description: Functions and procedures the decoding of the infra-red signal.
+;              Timer 1 is used to decode the infra red signal. The infra-red
+;              receiver must be connected to the INT pin of the PIC.
+; 
+; Sources:     For the format of the infra-red message see the infra red
+;              encoder library. 
+;
+
+
+; =========================== Constants & Variables ============================
+
+; The following constants are based on timer 1 running at 1 MHz or 1 us. A 
+; tolerance of 25% is accepted to increase sensitivity. Standard half bit times 
+; (1T) are 0.5 ms or 500 us.
+
+const word IR_BURST_MIN = 3_000 ; Nominal is 4 ms.
+const word IR_BURST_MAX = 5_000 
+const word IR_PAUSE_MIN = 1_500 ; Nominal is 2 ms.
+const word IR_PAUSE_MAX = 2_500 
+const word IR_1T_MIN = 375      ; Nominal is 0.5 ms.
+const word IR_1T_MAX = 625 
+const word IR_2T_MIN = 750      ; Nominal is 1 ms.
+const word IR_2T_MAX = 1_250 
+
+; We decode the IR bitstream on both edges for better performance.
+const DECODER_EDGE_RISING  = TRUE
+const DECODER_EDGE_FALLING = FALSE
+
+; Max value of timer 1 before overflow.
+const word DECODER_TIMER_OVERFLOW = 65535  
+
+; Decoder states.
+const byte DECODER_IDLE    = 0
+const byte DECODER_START   = 1
+const byte DECODER_PAUSE   = 2
+const byte DECODER_MESSAGE = 3
+
+; Number of bits in infra-red messages. This consists of:
+; 1 start bit, 1 toggle bit,  8 addres bits, 8 data bits and 1 stop bit
+const byte DECODER_BITS = 19
+
+; Variables.
+var dword decoder_shift_register
+var word decoder_bit_time     
+var byte decoder_state        
+var byte decoder_bit_count         
+var byte decoder_address       
+var byte decoder_data       
+var bit  decoder_toggle_bit         
+var bit  decoder_message_available     
+var bit  decoder_bit_half       
+var bit  decoder_edge              
+var bit  decoder_timer_expired
+
+; ========================= Functions and procedures ===========================
+
+
+; Reset the infra-red decoder to its initial state. 
+procedure decoder_reset() is
+
+   decoder_state = DECODER_IDLE
+   ; Stop the timer.
+   T1CON_TMR1ON  = FALSE
+   decoder_timer_expired = FALSE 
+   PIR1_TMR1IF  = FALSE 
+   ; Set initial interrupt to falling edge.  
+   decoder_edge = DECODER_EDGE_FALLING
+   OPTION_REG_INTEDG = decoder_edge
+   INTCON_INTF = FALSE
+
+end procedure 
+
+
+; Disable the decoder. Any pending message is removed and the infra-red
+; receiver is powered off.
+procedure decoder_disable() is
+
+   INTCON_INTE = FALSE ; Disable external interrupt.
+   decoder_message_available = FALSE
+   IR_RECEIVER_POWER = OFF
+
+end procedure
+
+
+; Enable and reset the decoder. Any pending message is removed and the infra-red
+; receiver is powered on.
+procedure decoder_enable() is
+
+   IR_RECEIVER_POWER = ON
+   decoder_reset()
+   decoder_message_available = FALSE
+   INTCON_INTE = TRUE ; Enable external interrupt.
+
+end procedure
+
+
+; Intialize the infra-red decoder. The infra-red receiver is powered off to
+; save power. The decoder must be enabled before use.
+procedure decoder_init() is
+
+   decoder_reset()
+   decoder_disable()
+   ; Set timer 1 on a clock of 1 MHz.
+   T1CON_TMR1CS = 0b00 -- Clock source Fosc/4, gives 4 MHz.
+   T1CON_T1CKPS = 0b10 -- Prescaler 1:4, gives 1 MHz.
+   -- Enable all used interrupts.
+   PIE1_TMR1IE = TRUE
+   INTCON_PEIE = TRUE
+   INTCON_GIE  = TRUE
+
+end procedure  
+
+
+; Returns TRUE when an infra-red message is received.
+function decoder_message_received() return bit is
+
+   return decoder_message_available
+
+end function 
+
+
+; Returns the last received infra red message. After called, the infra red 
+; message received flag is cleared.
+procedure decoder_get_message(bit out toggle, byte out address, byte out data) is
+
+   toggle = decoder_toggle_bit
+   address = decoder_address
+   data = decoder_data
+   decoder_message_available = FALSE
+
+end procedure 
+
+
+; Return the value of Timer 1. We return the Timer value if it has not
+; overflown otherwise this function returns the overflow value.
+function decoder_get_timer_value() return word is
+
+   if decoder_timer_expired then
+      return DECODER_TIMER_OVERFLOW
+   else
+      return TMR1
+   end if 
+
+end function 
+
+
+; Reset Timer 1 and start the timer.
+procedure decoder_timer_reset() is
+
+   TMR1 = 0
+   decoder_timer_expired = FALSE 
+   PIR1_TMR1IF = FALSE 
+   T1CON_TMR1ON = TRUE  
+
+end procedure
+
+
+; Timer1 interrupt. Occurs when the timer overflows.
+procedure decoder_timer_interrupt() is 
+  pragma interrupt
+
+   if PIR1_TMR1IF then
+      PIR1_TMR1IF = FALSE
+      T1CON_TMR1ON = FALSE
+      decoder_timer_expired = TRUE
+      ; Trigger the external interrupt.
+      INTCON_INTF = TRUE 
+   end if
+
+end procedure 
+
+
+; External interrupt triggered by the infra-red receiver.
+procedure decoder_interrupt() is 
+   pragma interrupt
+
+
+   if INTCON_INTF & INTCON_INTE then
+      INTCON_INTF = FALSE   
+      ; We have to toggle the decoding edge
+      decoder_edge = !decoder_edge
+      OPTION_REG_INTEDG = decoder_edge
+    
+      ; Get the Timer value in us and (re) start the timer for the next
+      ; measurement.
+      decoder_bit_time = decoder_get_timer_value()
+      decoder_timer_reset()
+
+      ; Now check where we are in decoding the infra red message.
+      case decoder_state of
+    
+         DECODER_IDLE:
+         block
+            ; This is the start of the message or an overflow from the timer.
+            decoder_state  = DECODER_START
+         end block 
+      
+         DECODER_START:
+         block
+            if (decoder_bit_time >= IR_BURST_MIN ) & 
+               (decoder_bit_time <= IR_BURST_MAX) then
+               decoder_state  = DECODER_PAUSE
+            else 
+               decoder_reset()
+            end if 
+         end block 
+
+         DECODER_PAUSE:
+         block
+            if (decoder_bit_time >= IR_PAUSE_MIN) & 
+               (decoder_bit_time <= IR_PAUSE_MAX) then
+               ; OK, next is a start bit followed by the rest of the message.
+               decoder_bit_half = TRUE 
+               decoder_shift_register = 0 
+               decoder_bit_count = 0 
+               decoder_state  = DECODER_MESSAGE
+            else 
+               decoder_reset()
+           end if
+         end block 
+
+         DECODER_MESSAGE:
+         block
+            ; Depending on the bit time we have to take different actions.
+            ; Check for 1T bit time.
+            if (decoder_bit_time >= IR_1T_MIN) & 
+               (decoder_bit_time <= IR_1T_MAX) then
+               ; 1T, depening if we are in the firt or second haf of a bit we
+               ; have to do something different.
+               if decoder_bit_half then
+                  ; Halfway a bit which means a bit is received.
+                  decoder_bit_count = decoder_bit_count + 1 
+                  decoder_shift_register = decoder_shift_register << 1
+                  if !decoder_edge then
+                     ; Interrupt low means that trigger was by interrupt high but
+                     ; because receiver data is inverted we use low.
+                     decoder_shift_register = decoder_shift_register | 0x01
+                  end if
+                  decoder_bit_half = FALSE
+               else  
+                  decoder_bit_half = TRUE ; In second half, only change bit half.
+               end if
+            elsif (decoder_bit_time >= IR_2T_MIN) & 
+               (decoder_bit_time <= IR_2T_MAX) then
+               ; 2T we always have to store a bit here. 
+               ; We do not switch bit half
+               decoder_bit_count = decoder_bit_count + 1 
+               decoder_shift_register = decoder_shift_register << 1
+               if !decoder_edge then
+                  ; Interrupt low means that trigger was by interrupt high but
+                  ; because receiver data is inverted we use low.
+                  decoder_shift_register = decoder_shift_register | 0x01
+               end if
+            else 
+               decoder_reset() -- Incorrect bit_Time
+            end if
+
+            ; Check if we are done receiving all bits.
+            if (decoder_bit_count == DECODER_BITS) then
+               ; All bits received. Check if the data is correct, that means that
+               ; the start bit (1) and the stop bit (0) must be present.
+               if ((decoder_shift_register & 0x00_04_00_00) != 0) & 
+                  ((decoder_shift_register & 0x00_00_00_01) == 0) then
+                  ; OK, get the data. First shift out the stop bit.
+                  decoder_shift_register = decoder_shift_register >> 1
+                  decoder_toggle_bit = ((decoder_shift_register & 0x00_01_00_00) > 0)
+                  ; Mask of the start bit and toggle bt.
+                  decoder_shift_register = (decoder_shift_register & 0x_00_00_FF_FF)
+                  decoder_address = byte (decoder_shift_register >> 8)
+                  decoder_data = byte (decoder_shift_register & 0x00_00_00_FF)
+                  decoder_message_available = TRUE
+               end if 
+               decoder_reset() ; We are done, independent if the data is OK or not.
+            end if 
+         end block 
+
+      end case 
+
+   end if 
+end procedure 
+
+

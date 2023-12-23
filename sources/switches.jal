@@ -1,0 +1,206 @@
+;===============================================================================
+; Title : Switch handling routines for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-03 : Initial version.
+;
+; Compiler: 2.5r8
+;
+; Description: Definition of all for handling the switches.
+;
+
+; ========================= Pin definitions  ==========================
+include delay             ; JAL delay library.
+
+; Some constants representing pressed switches.
+const byte NO_SWITCH_ACTIVE    = 0
+const byte MENU_SWITCH_ACTIVE  = 1
+const byte START_SWITCH_ACTIVE = 2
+const byte BOTH_SWITCH_ACTIVE  = 3
+
+; Switch constant for long key press.
+const byte LONG_KEY_PRESS_TIME = 25 ; 0.5 second, based on 20 ms delay. 
+
+; ========================= Functions and procedures ==========================
+
+; Wait a certain debounce time. Needed after a key press.
+procedure debounce() is
+
+   delay_1ms(50)
+
+end procedure
+
+
+; Returns TRUE when both switches are pressed.
+function both_switches_pressed() return bit is
+
+   var bit switch_is_pressed = FALSE
+
+   if !MENU_SWITCH  & !START_SWITCH then
+      debounce()
+      ; Check if still pressed.
+      if !MENU_SWITCH & !START_SWITCH then
+         switch_is_pressed = TRUE
+      end if
+   end if
+   return switch_is_pressed
+
+end function
+
+
+; Returns true when both switches are released.
+function both_switches_released() return bit is
+
+   var bit switches_free = FALSE
+
+   if START_SWITCH & MENU_SWITCH then
+      debounce()
+      if START_SWITCH & MENU_SWITCH then
+         switches_free = TRUE
+      end if 
+   end if
+   return switches_free
+
+end function
+
+
+; Returns TRUE when the menu switch is pressed.
+function menu_switch_pressed() return bit is
+
+   var bit switch_is_pressed = FALSE
+
+   if !MENU_SWITCH then
+      debounce()
+      ; Check if still pressed.
+      if !MENU_SWITCH then
+         switch_is_pressed = TRUE
+      end if
+   end if
+   return switch_is_pressed
+
+end function
+
+
+; Returns TRUE when the start switch is pressed.
+function start_switch_pressed() return bit is
+
+   var bit switch_is_pressed = FALSE
+
+   if !START_SWITCH then
+      debounce()
+      ; Check if still pressed.
+      if !START_SWITCH then
+         switch_is_pressed = TRUE
+      end if
+   end if
+   return switch_is_pressed
+
+end function
+
+
+; Wait for the menu switch to be pressed.
+procedure wait_for_menu_switch_pressed() is
+
+   while MENU_SWITCH loop end loop
+   debounce()
+   while MENU_SWITCH loop end loop
+
+end procedure
+
+
+; Wait for the menu switch to be released.
+procedure wait_for_menu_switch_released() is
+
+   while !MENU_SWITCH loop end loop
+   debounce()
+   while !MENU_SWITCH loop end loop
+
+end procedure
+
+
+; Wait for the start switch to be pressed.
+procedure wait_for_start_switch_pressed() is
+
+   while START_SWITCH loop end loop
+   debounce()
+   while START_SWITCH loop end loop
+
+end procedure
+
+
+; Wait for the start switch to be released.
+procedure wait_for_start_switch_released() is
+
+   while !START_SWITCH loop end loop
+   debounce()
+   while !START_SWITCH loop end loop
+
+end procedure
+
+
+; Wait for the menu switch of start switch to be pressed.
+procedure wait_for_any_switch_pressed() is
+
+   while MENU_SWITCH & START_SWITCH loop end loop
+   debounce()
+   while MENU_SWITCH & START_SWITCH loop end loop
+
+end procedure
+
+
+; Wait for the menu switch and the start switch to be released.
+procedure wait_for_both_switches_released() is
+
+   while !MENU_SWITCH | !START_SWITCH loop end loop
+   debounce()
+   while !MENU_SWITCH | !START_SWITCH loop end loop
+
+end procedure
+
+
+; Return the pressed switch if any is pressed.
+function get_pressed_switch() return byte is
+
+   var byte active_switch = NO_SWITCH_ACTIVE
+
+   if !MENU_SWITCH then
+      debounce()
+      if !MENU_SWITCH then
+         if !START_SWITCH then
+            debounce()
+            if !START_SWITCH then
+               active_switch = BOTH_SWITCH_ACTIVE
+            else
+               active_switch = MENU_SWITCH_ACTIVE
+            end if
+         else
+            active_switch = MENU_SWITCH_ACTIVE
+         end if 
+      end if 
+   end if 
+
+   ; We still check the start switch since in case both switches
+   ; are pressed, it can be that the start switch was pressed
+   ; just before the menu switch was pressed.
+   if !START_SWITCH then
+      debounce()
+      if !START_SWITCH then
+         if !MENU_SWITCH then
+            debounce()
+            if !MENU_SWITCH then
+               active_switch = BOTH_SWITCH_ACTIVE
+            else
+               active_switch = START_SWITCH_ACTIVE
+            end if
+         else
+            active_switch = START_SWITCH_ACTIVE
+         end if
+      end if
+   end if
+
+   return active_switch 
+
+end function
+

@@ -1,0 +1,1158 @@
+;===============================================================================
+; Title : Games and actions for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-10 : Initial version.
+; 2023-11-27 : Added watchdog.
+; 2023-12-14 : Added the game battleship.
+;
+; Compiler: 2.5r8
+;
+; Description: Functions and procedures to provide games and actions. 
+;
+
+; =========================== Constants & Variables ==========================
+
+; Reaction times in step of 1 ms.
+const word MAX_REACTION_TIME = 1275
+const word REACTION_TIMES[] = {1_000, 600, 400, 300, 280, 240}
+
+; Some generic constants.
+const byte LED_DOT  = 0b0001_1000 ; Morse dot.
+const byte LED_DASH = 0b1111_1111 ; Morse dash.
+const byte DATA_DOT  = 0x00 ; Only 4 lsb's can be used.
+const byte DATA_DASH = 0x01 ; Only 4 lsb's can be used.
+
+; Constant for the Simon says game. Nr. of locations to remember.
+const byte MAX_SIMON_SAYS = 10
+
+; Variables.
+var byte simon_says_array[MAX_SIMON_SAYS]
+
+; ========================= Functions and procedures ==========================
+
+; Walking menu. Stop when the start switch is pressed and return the menu
+; item number (1 .. 8) corresponding with the LED that was lit when the
+; start switch was pressed.
+function walking_menu() return byte is
+
+   const byte WALKING_MENU_DELAY = 60
+   var byte idle_counter = 0
+   var byte counter = 1
+   var byte switch_timer
+   var bit go_on = TRUE
+
+   LED_1_8 = 0x01
+   while go_on loop
+
+      ; Shift from LED_1 to LED_8 (lsb to msb)
+      while (counter < 8) & go_on loop
+         switch_timer = 0
+         while (switch_timer < WALKING_MENU_DELAY) & MENU_SWITCH & START_SWITCH loop
+            delay_1ms(10)
+            switch_timer = switch_timer + 1
+         end loop
+         if MENU_SWITCH & START_SWITCH then
+            LED_1_8 = LED_1_8 << 1
+            counter = counter + 1
+         else 
+            go_on = FALSE
+         end if 
+      end loop
+      counter = counter - 1
+
+      ; Shift from LED_8 to LED_1 (msb to lsb)
+      while (counter != 0) & go_on loop
+         switch_timer = 0
+         while (switch_timer < WALKING_MENU_DELAY) & MENU_SWITCH & START_SWITCH loop
+            delay_1ms(10)
+            switch_timer = switch_timer + 1
+         end loop
+         if MENU_SWITCH & START_SWITCH then
+            LED_1_8 = LED_1_8 >> 1
+            counter = counter - 1
+         else
+             go_on = FALSE
+         end if 
+      end loop
+      counter = counter + 1
+
+      ; See if we need to return the lighthouse option. This is done
+      ; when no action is performed.
+      idle_counter = idle_counter + 1
+      if (idle_counter == TICKS_UNTIL_WALKING_MENU_END) then
+         counter = LED_1 ; Light house.
+         go_on = FALSE
+      end if 
+
+   end loop
+   pet_dog() ; There was an action, prevent reset.
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+   return counter
+
+end function
+
+
+; Light house function. Stop when the menu switch or start switch is pressed and 
+; both released. If no switch is pressed for a determiend time the routine will 
+; power down the system.
+procedure light_house() is
+
+   var word power_down_counter = 0
+   var byte switch_timer
+
+   LED_1_8 = ALL_OFF
+   wait_for_both_switches_released()
+   while MENU_SWITCH & START_SWITCH loop
+      LED_GO = ON
+      delay_1ms(1)
+      LED_GO = OFF
+      switch_timer = 0
+      while (switch_timer < 100) & MENU_SWITCH & START_SWITCH loop
+         switch_timer = switch_timer + 1
+         power_down_counter = power_down_counter + 1
+         if (power_down_counter == TICKS_UNTIL_POWER_DOWN) then
+            power_down_counter = 0
+            power_down()
+            ; After returning from power down, we continue here. 
+         end if 
+         delay_1ms(10)
+      end loop 
+   end loop
+   pet_dog() ; There was an action, prevent reset.     
+   wait_for_both_switches_released()
+
+end procedure
+
+
+; Snake function. It starts with a short snake and gets longer every time.
+; Stop when the menu switch or start switch is pressed and both released.
+procedure snake() is
+
+   const byte SNAKE_DELAY = 100
+   var byte position, length, counter
+
+   length = 1
+   LED_1_8 = ALL_OFF
+   while MENU_SWITCH & START_SWITCH loop
+      ; Snake head starts at the first position.
+      position = 1
+      counter = length
+      while MENU_SWITCH & START_SWITCH & (position < 8) loop
+         if (counter != 0) then
+            LED_1_8 = LED_1_8 | 0b0000_0001 ; This makes the snake longer.
+            counter = counter - 1
+         end if
+        delay_1ms(SNAKE_DELAY)
+        LED_1_8 = LED_1_8 << 1
+        position = position + 1
+      end loop
+      ; The head reached the end, see if the tail is done.
+      counter = length
+      while MENU_SWITCH & START_SWITCH & (counter != 0) loop
+         counter = counter - 1
+         delay_1ms(SNAKE_DELAY)
+         LED_1_8 = LED_1_8 << 1
+      end loop
+      ; Snake reached the end, make the snake longer or restart.
+      if (length < 8) then
+         length = length + 1
+      else
+         length = 1
+      end if 
+   end loop
+   pet_dog() ; There was an action, prevent reset.     
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Show the knight rider pattern. A maximum of 5 LEDs will fade-in and fade-out.
+; Stop when the menu switch or start switch is pressed and both released.
+procedure knight_rider() is
+
+   const byte NIGHT_RIDER_DELAY  = 50
+   const byte NIGHT_RIDER_LENGTH = 4
+   var byte position, length
+   var bit left_shift
+
+   LED_1_8 = ALL_OFF
+   left_shift = TRUE
+   while MENU_SWITCH & START_SWITCH loop
+      ; Start at the first position.
+      position = 1
+      length = NIGHT_RIDER_LENGTH
+      while MENU_SWITCH & START_SWITCH & (position < 8) loop
+         if left_shift then
+           ; Move from LED_1 to LED_8.
+           if (length != 0) then
+               LED_1_8 = LED_1_8 | 0b0000_0001 ; Add an extra LED.
+               length = length - 1
+            end if
+            delay_1ms(NIGHT_RIDER_DELAY)
+            LED_1_8 = LED_1_8 << 1
+            position = position + 1
+         else
+           ; Move from LED_8 to LED_1.
+            if (length != 0) then
+               LED_1_8 = LED_1_8 | 0b1000_0000 ; Add an extra LED.
+               length = length - 1
+            end if
+            delay_1ms(NIGHT_RIDER_DELAY)
+            LED_1_8 = LED_1_8 >> 1
+            position = position + 1
+         end if 
+      end loop
+      ; The first/last position reached the end, fade-out until 1 is left.
+      length = NIGHT_RIDER_LENGTH
+      while MENU_SWITCH & START_SWITCH & (length != 0) loop
+         if left_shift then 
+            delay_1ms(NIGHT_RIDER_DELAY)
+            LED_1_8 = LED_1_8 << 1
+         else
+            delay_1ms(NIGHT_RIDER_DELAY)
+            LED_1_8 = LED_1_8 >> 1
+         end if 
+         length = length - 1
+      end loop
+      ; Now go back.
+      left_shift = !left_shift
+   end loop
+   pet_dog() ; There was an action, prevent reset.     
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Simon says game. Generate a random LED pattern that gets more complex over time
+; and check if the user repeats it correctly. Stops when an error was made and 
+; the users presses the MENU switch (the START switch restarts the game) or
+; when the user has completed the game. 
+procedure simon_says() is 
+
+   var byte difficulty, switch_pressed
+   var byte index, led_number, timer
+   var bit go_on, round_active
+
+   go_on = TRUE
+   difficulty = 0
+   while go_on & (difficulty < MAX_SIMON_SAYS) loop
+      delay_1s(1)
+      round_active = TRUE
+      LED_1_8 = ALL_OFF
+      LED_GO = OFF
+      LED_OK = OFF
+      LED_NOK = OFF
+      difficulty = difficulty + 1
+      ; Generate the random sequence and show it.
+      for difficulty using index loop
+         simon_says_array[index] = (Random_byte % 8) + 1
+         put_led_on(simon_says_array[index])
+         delay_1ms(500)
+         put_led_off(simon_says_array[index])
+         delay_1ms(500)
+      end loop
+      delay_1s(1)
+      ; Now the user has to repeat it.
+      LED_GO = ON
+      put_led_on(1)
+      led_number = 1
+      index = 0
+      while go_on & round_active & (index < difficulty) loop
+         if start_switch_pressed() then
+            pet_dog() ; There was an action, prevent reset.     
+            ; Check for long key press.
+            timer = 0
+            while !START_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+               delay_1ms(20) 
+               timer = timer + 1
+            end loop
+            if (timer == LONG_KEY_PRESS_TIME) then
+               ; Long key press, check result
+               if (simon_says_array[index] == led_number) then
+                  index = index + 1
+                  LED_OK = ON
+                  delay_1s(1)
+                  LED_OK = OFF
+               else
+                  LED_OK = OFF
+                  LED_NOK = ON
+                  ;  See what the user wants to do.
+                  wait_for_both_switches_released()
+                  repeat
+                     switch_pressed = get_pressed_switch()
+                  until switch_pressed != NO_SWITCH_ACTIVE
+                  if switch_pressed == START_SWITCH_ACTIVE then
+                     difficulty = 0
+                     round_active = FALSE ; Restart game.
+                  else
+                     go_on = FALSE ; Exit game. 
+                  end if 
+                  LED_1_8 = ALL_OFF
+                  LED_NOK = OFF
+                  LED_GO = OFF
+                  wait_for_both_switches_released()
+               end if 
+            else
+               ; Short key press, move LED.
+               put_led_off(led_number)
+               if (led_number < 8) then  
+                  led_number = led_number + 1
+               end if 
+               put_led_on(led_number)
+            end if 
+            if go_on then
+               wait_for_start_switch_released()
+           end if 
+         elsif menu_switch_pressed() then
+            pet_dog() ; There was an action, prevent reset.     
+            ; Check for long key press.
+            timer = 0
+            while !MENU_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+               delay_1ms(20) 
+               timer = timer + 1
+            end loop
+            if (timer == LONG_KEY_PRESS_TIME) then
+               ; Long key press, check result
+               if (simon_says_array[index] == led_number) then
+                  index = index + 1
+                  LED_OK = ON
+                  delay_1ms(500)
+                  LED_OK = OFF
+               else
+                  LED_OK = OFF
+                  LED_NOK = ON
+                  ;  See what the user wants to do.
+                  wait_for_both_switches_released()
+                  repeat
+                     switch_pressed = get_pressed_switch()
+                  until switch_pressed != NO_SWITCH_ACTIVE
+                  if switch_pressed == START_SWITCH_ACTIVE then
+                     difficulty = 0
+                     round_active = FALSE ; Restart game.
+                  else
+                     go_on = FALSE ; Exit game.
+                  end if 
+                  LED_1_8 = ALL_OFF
+                  LED_NOK = OFF
+                  LED_GO = OFF
+                  wait_for_both_switches_released()
+               end if 
+            else
+               ; Short key press, move LED.
+               put_led_off(led_number)
+               if (led_number > 1) then  
+                  led_number = led_number - 1
+               end if 
+               put_led_on(led_number)
+            end if
+            if go_on then
+               wait_for_menu_switch_released()
+            end if 
+         end if 
+      end loop
+      LED_1_8 = ALL_OFF
+      LED_GO = OFF
+      wait_for_both_switches_released()
+   end loop
+   ; Show the total score or the winner pattern.
+   if (difficulty == MAX_SIMON_SAYS) then
+      show_victory()
+   else 
+      show_bar_graph(difficulty * 8)
+   end if 
+   wait_for_both_switches_released()
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Show the given reaction time on the LEDs 1 to 8. Time is divided as follows
+; from LED_1 to LED_8: 5 ms, 10 ms, 20 ms, 40 ms, 8 0ms, 160 ms, 320 ms, 640 ms.
+; So maximum time is 1275 ms. 
+procedure show_reaction_time(word in reaction_time) is
+
+   var word display_time = 640 ; Start at maximum time.
+   var byte display_activation = 0x80 ; Start at LED_8.
+   var byte display_value = ALL_OFF
+
+   for 7 loop
+      if (reaction_time / display_time) > 0 then
+         display_value = display_value | display_activation
+         reaction_time = reaction_time - display_time
+      end if
+      display_time = display_time / 2
+      display_activation = display_activation >> 1
+   end loop
+   LED_1_8 = display_value
+
+end procedure
+
+
+; Wait time when the user pressed the reaction time switch too soon.
+procedure reaction_to_soon() is
+
+   LED_1_8 = ALL_ON
+   delay_1s(1)
+   for 8 loop
+      LED_1_8 = LED_1_8 >> 1
+      delay_1s(1)
+   end loop
+
+end procedure
+
+
+; Reaction time measurement. Stops when the maximum time was measured or
+; if the user presses the MENU switch.
+procedure reaction_timer() is
+
+   var word reaction_time, wait_time
+   var byte switch_pressed
+   var bit go_on
+
+   LED_1_8 = ALL_ON
+   LED_GO = OFF
+   LED_NOK = OFF
+   LED_OK = OFF
+   go_on = TRUE
+   ; No switches must be pressed.
+   wait_for_both_switches_released()
+   while go_on loop
+      ; Now the start must be pressed.
+      wait_for_start_switch_pressed()
+      pet_dog() ; There was an action, prevent reset.     
+      wait_for_start_switch_released()
+      LED_NOK = OFF
+      LED_OK = OFF
+      LED_1_8 = ALL_OFF
+      ; Now wait a random time. At least 3 seconds, at most 20 seconds.
+      ; We measure the reaction time in 1 ms. 
+      wait_time = (random_word() % 18_000) + 3_000
+      while (wait_time != 0) & START_SWITCH loop
+         _usec_delay(1_000)
+         wait_time = wait_time - 1
+      end loop
+      ; The user must not press the menu switch to soon.
+      if (wait_time != 0) then
+         ; Pressed too soon. Introduce a waiting pause.
+         reaction_to_soon()
+         LED_1_8 = ALL_ON
+      else
+         ; Indicate that we are running!
+         LED_GO = ON 
+         timer_start_measurement(MAX_REACTION_TIME)
+         while START_SWITCH & !timer_timeout loop
+            ; Wait for switch or timeout.
+         end loop
+         LED_GO = OFF 
+         reaction_time = timer_get_measurement()
+         if timer_timeout then
+            ; Too long. See what the user wants to do.
+            LED_OK = OFF
+            LED_NOK = ON
+            LED_1_8 = ALL_ON
+            wait_for_both_switches_released()
+            repeat
+               switch_pressed = get_pressed_switch()
+            until switch_pressed != NO_SWITCH_ACTIVE
+            if switch_pressed == MENU_SWITCH_ACTIVE then
+               go_on = FALSE ; Exit game.
+            end if 
+            LED_NOK = OFF
+         else
+            LED_NOK = OFF
+            LED_OK = ON
+            show_reaction_time(reaction_time)
+         end if 
+      end if 
+      wait_for_start_switch_released()
+   end loop
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+   LED_OK = OFF
+   LED_NOK = OFF
+   
+end procedure
+
+
+; The player must beat 6 predefined reaction times.
+procedure jota_game() is
+
+   var word response_time, reaction_time, wait_time
+   var byte round, switch_pressed
+   var bit go_on
+
+   LED_1_8 = ALL_ON
+   LED_GO = OFF
+   LED_NOK = OFF
+   LED_OK = OFF
+   go_on = TRUE
+   round = 0
+   ; No switches must be pressed.
+   wait_for_both_switches_released()
+   while go_on loop
+      ; Now the start must be pressed, except when the last time was NOK.
+      ; because in case of NOK we later ask for the choice of the user and
+      ; if that is the start switch then the game continues and we do not want
+      ; the user to press it twice.
+      if (LED_NOK != ON) then
+         wait_for_start_switch_pressed()
+         wait_for_start_switch_released()
+      end if 
+      LED_NOK = OFF
+      LED_OK = OFF
+      LED_1_8 = ALL_OFF
+      delay_1ms(500)
+      ; Generate a response time. The maximum is 1275 ms.
+      response_time = REACTION_TIMES[round]
+      -- response_time = random_word() % MAX_REACTION_TIME ; Altenative, use random times.
+      show_reaction_time(response_time)
+      delay_1s(2)
+      LED_1_8 = ALL_OFF
+      ; Now wait a random time. At least 3 seconds, at most 20 seconds.
+      ; We measure the reaction time in 1 ms. 
+      wait_time = (random_word() % 18_000) + 3_000
+      while (wait_time != 0) & START_SWITCH loop
+         _usec_delay(1_000)
+         wait_time = wait_time - 1
+      end loop
+      ; The user must not press the menu switch to soon.
+      if (wait_time != 0) then
+         ; Pressed too soon.
+         reaction_to_soon()
+      else
+         ; Indicate that we are running!
+         LED_GO = ON 
+         timer_start_measurement(response_time)
+         while START_SWITCH & !timer_timeout loop
+            ; Wait for switch or timeout.
+         end loop
+         LED_GO = OFF 
+         reaction_time = timer_get_measurement()
+         if timer_timeout then
+            ; Too long.
+            LED_NOK = ON
+            LED_1_8 = ALL_ON
+            if (round != 0) then
+               round = round - 1
+            end if 
+            ; See what the user wants to do.
+            wait_for_both_switches_released()
+            repeat
+               switch_pressed = get_pressed_switch()
+            until switch_pressed != NO_SWITCH_ACTIVE
+            if switch_pressed == MENU_SWITCH_ACTIVE then
+               go_on = FALSE ; Exit game.
+            end if 
+         else
+            LED_OK = ON
+            round = round + 1
+            show_reaction_time(reaction_time)
+            delay_1s(1)
+         end if 
+      end if 
+      ; See if we are done.
+      if round == count(REACTION_TIMES) then
+         go_on = FALSE
+      end if
+      pet_dog() ; There was an action, prevent reset.     
+      wait_for_both_switches_released()
+   end loop
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = OFF
+   ; Show the total score or the winner patternm
+   if (round == count(REACTION_TIMES)) then
+      show_victory()
+   else 
+      show_bar_graph((round + 1) * 12)
+   end if 
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+   
+end procedure
+
+
+; Pong. The speed increases the longer you play. Stops when the user presses
+; the MENU switch.
+procedure pong() is
+  
+   const word PONG_START_TIME = 10_000 ; In 10 us = 100 ms per LED.
+   const word PONG_DECREASE_TIME = 500 ; In 10 us = 5 ms
+   var word set_time, delay_timer
+   var byte round, switch_pressed, led_value
+   var bit go_on, in_time, left_shift
+
+   go_on = TRUE
+   LED_GO = FALSE
+   wait_for_both_switches_released()
+   ; Show a starting pattern for pong.
+   while go_on loop
+      LED_1_8 = 0b1000_0001
+      delay_timer = 25
+      while (delay_timer > 0) & go_on loop
+         delay_1ms(10)
+         delay_timer = delay_timer - 1
+         go_on = MENU_SWITCH & START_SWITCH 
+      end loop
+      LED_1_8 = 0b0000_0000
+      delay_timer = 25
+      while (delay_timer > 0) & go_on loop
+         delay_1ms(10)
+         delay_timer = delay_timer - 1
+         go_on = MENU_SWITCH & START_SWITCH 
+      end loop
+   end loop
+
+   LED_1_8 = ALL_OFF
+   go_on = TRUE
+   while go_on loop
+      LED_GO = TRUE
+      in_time = TRUE
+      led_value = 0b_0000_0001
+      LED_1_8 = led_value
+      set_time = PONG_START_TIME 
+      left_shift = TRUE
+      round = 0
+      while go_on & in_time loop
+         delay_timer = 0
+         while (delay_timer < set_time) loop
+            delay_timer = delay_timer + 1
+            _usec_delay(10)
+         end loop
+         if left_shift then
+            led_value = led_value << 1
+         else 
+            led_value = led_value >> 1
+         end if 
+         delay_timer = 0
+         if (led_value & 0b1000_0001) != 0 then
+            ; We are at the end, wait for key press. If any switch is 
+            ; already pressed then that is an error. Note that we did
+            ; not yet update the display so a switch must not be pressed.
+            if !MENU_SWITCH | !START_SWITCH then
+               in_time = FALSE
+            else
+               ; Now we update the display. 
+               LED_1_8 = led_value
+               if left_shift then
+                  while (delay_timer < set_time) & START_SWITCH loop
+                     delay_timer = delay_timer + 1
+                     _usec_delay(10)
+                  end loop
+               else
+                  while (delay_timer < set_time) & MENU_SWITCH loop
+                     delay_timer = delay_timer + 1
+                     _usec_delay(10)
+                  end loop
+               end if 
+               left_shift = !left_shift
+               ; See if the user was in time with his or her reaction.
+               if (delay_timer == set_time) then
+                  in_time = FALSE
+               end if 
+            end if 
+            if in_time then
+               LED_NOK = FALSE
+               LED_OK = TRUE
+               round = round + 1
+               if (set_time > PONG_DECREASE_TIME) then
+                  set_time = set_time - PONG_DECREASE_TIME
+               else
+                  go_on = FALSE ; We are done.
+               end if 
+            else
+               LED_OK = FALSE
+               LED_NOK = TRUE
+               LED_GO = FALSE
+               if (set_time < PONG_START_TIME) then
+                  set_time = set_time + PONG_DECREASE_TIME
+               end if
+               wait_for_both_switches_released()
+               ; See what the user wants to do.
+               repeat
+                  switch_pressed = get_pressed_switch()
+               until switch_pressed != NO_SWITCH_ACTIVE
+               if switch_pressed == MENU_SWITCH_ACTIVE then
+                  go_on = FALSE ; Exit game.
+               else
+                  LED_NOK = FALSE
+               end if
+               pet_dog() ; There was an action, prevent reset.     
+               wait_for_both_switches_released()
+            end if 
+         else
+            ; Not at the end, just update the display.
+            LED_1_8 = led_value
+         end if 
+      end loop       
+   end loop
+   wait_for_both_switches_released()
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = OFF
+   if (set_time > PONG_DECREASE_TIME) then
+      show_bar_graph(round * 4) 
+   else
+      show_victory() 
+   end if
+   wait_for_both_switches_released
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Send morse code via infra-red.
+procedure morse_send() is
+
+   const byte OK_LED_ON_TIME = 5
+   var byte led_value, led_data, switch_pressed, timer
+   var bit go_on, toggle, transmit_message
+
+   wait_for_both_switches_released()
+   ; We do not want to receive or own send message.
+   decoder_disable()
+   led_value = LED_DOT ; Start value is dot.
+   LED_1_8 = led_value
+   LED_GO = TRUE
+   go_on = TRUE
+   toggle = TRUE ; To indicate a new message.
+   transmit_message = FALSE
+   ; The menu switch selects the dot, the start switch the dash.
+   while go_on loop
+      switch_pressed = get_pressed_switch()
+      ; First see if we need to stop.
+       if (switch_pressed == BOTH_SWITCH_ACTIVE) then
+          go_on = FALSE
+       elsif (switch_pressed == START_SWITCH_ACTIVE) then
+         led_value = LED_DASH
+         led_data = DATA_DASH
+         LED_1_8 = led_value
+         ; Check for long key press.
+         timer = 0
+         while !START_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(20) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; Send the message.
+            LED_OK = ON
+            timer = OK_LED_ON_TIME
+            transmit_message = TRUE
+         else
+            ; Short key press so new message.
+            toggle = !toggle
+         end if 
+      elsif (switch_pressed == MENU_SWITCH_ACTIVE) then
+         led_value = LED_DOT
+         led_data = DATA_DOT
+         LED_1_8 = led_value
+         ; Check for long key press.
+         timer = 0
+         while !MENU_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(20) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; Send the message.
+            LED_OK = ON
+            timer = OK_LED_ON_TIME
+            transmit_message = TRUE
+         else
+            ; Short key press so new message.
+            toggle = !toggle
+         end if 
+      end if 
+
+      if transmit_message then
+         ; Wait for the decoder to be ready.
+         while !encoder_ready() loop end loop
+         encoder_send_message(toggle, my_address, IR_COMMAND_MORSE | led_data)
+         transmit_message = FALSE
+         pet_dog() ; There was an action, prevent reset.     
+      end if 
+
+      ; Check if we need to turn off the OK LED. Note that we use
+      ; the value of LONG_KEY_PRESS_TIME if set.
+      if (timer > 0) then
+         timer = timer - 1
+      else
+         LED_OK = OFF
+      end if 
+
+   end loop
+
+end procedure
+
+
+; Receive morse via infra-red.
+procedure morse_receive() is
+
+   var byte ir_address, ir_data
+   var byte previous_address, previous_data
+   var bit ir_toggle, previous_toggle
+
+   wait_for_both_switches_released()
+   ; Power on the infra-red receiver. Stops when a switch is pressed.
+   decoder_enable()
+   ; Initial settings for infra red messages.
+   previous_address = NO_ADDRESS
+   previous_data = IR_COMMAND_NONE
+   previous_toggle = FALSE
+   LED_1_8 = ALL_OFF
+   LED_GO = ON
+   while MENU_SWITCH & START_SWITCH loop
+      if decoder_message_received() then
+         pet_dog() ; There was an action, prevent reset.     
+         ; Message received, check if this is for me. A broadcast message
+         ; (address 0x00) is always accepted. We only accept morse
+         ; commands
+         decoder_get_message(ir_toggle, ir_address, ir_data)
+         if ((ir_address == my_address) | (ir_address == BROADCAST_ADDRESS)) & 
+            ((ir_data & IR_MASK_COMMAND) == IR_COMMAND_MORSE) then
+            ; Valid address. First check if this was a new message.
+            if (ir_toggle != previous_toggle) | (ir_address != previous_address) | 
+               (ir_data != previous_data)  then
+               ; Copy this for the next reception.
+               previous_toggle = ir_toggle
+               previous_address = ir_address
+               previous_data = ir_data
+               ; Update the LEDs.
+               if ((ir_data & IR_MASK_DATA) == 0) then
+                  LED_1_8 = LED_DOT
+               else
+                  LED_1_8 = LED_DASH
+              end if 
+               ; Indicate reception.
+               LED_OK = TRUE
+               delay_1ms(300)
+               LED_OK = FALSE
+            end if 
+          end if
+      end if 
+   end loop
+   decoder_disable() ; Save power by switching the receiver off.
+
+end procedure
+
+
+; Send or receive morse code via infra red depending on the selection.
+procedure morse() is
+
+   var byte led_value, timer
+
+   wait_for_both_switches_released()
+   ; Show a starting pattern for morse. Depending on the key pressed we are
+   ; going to send morse or receive morse.
+   LED_OK = OFF
+   LED_NOK = OFF
+   led_value = LED_DOT
+   while MENU_SWITCH & START_SWITCH  loop
+      LED_1_8 = led_value
+      timer = 50
+      while (timer > 0) & MENU_SWITCH & START_SWITCH  loop
+         delay_1ms(10)
+         timer = timer - 1
+      end loop
+      ; Switch from dot to dash or the other way around.
+      if led_value == LED_DOT then
+         led_value = LED_DASH
+      else
+         led_value = LED_DOT
+      end if
+   end loop
+
+   ; Check which key was pressed.
+   if menu_switch_pressed() then
+      morse_receive()
+   else
+      morse_send()
+   end if 
+
+   wait_for_both_switches_released()
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = OFF
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Play battleship with another player.
+procedure battleship() is
+
+   const byte LOOP_TIME = 20 ; 20 ms.
+   const byte NR_OF_SHIPS = 5
+   const byte MAX_RETRIES = 5
+   const byte REPLY_TIMEOUT = 100 ; In 20 ms steps so max 2 seconds.
+   const byte LOST_TIMEOUT  = 100 ; In 20 ms steps so max 2 seconds.
+   const byte DISPLAY_TIME  = 50  ; In 20 ms steps so max 1 second.
+   const byte NO_LED = 0 ; LEDs are from bit 1..8.
+   const byte OK_NOK_LED_ON_TIME = 5
+
+   var byte ships[NR_OF_SHIPS] 
+   var byte counter, ship_selected, ship_value, index, switch_pressed
+   var byte ir_address, ir_data, command_data
+   var byte retry_counter, reply_timer, display_timer, end_of_game_timer, timer
+   var byte led_number, led_selected
+   var bit led_present, go_on, game_won, game_lost
+   var bit ir_toggle, toggle, message_received, transmit_message
+
+   wait_for_both_switches_released()
+   ; Initial settings for infra red messages.
+   go_on = TRUE
+   game_won = FALSE
+   game_lost = FALSE
+   LED_1_8 = ALL_OFF
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = ON
+   transmit_message = FALSE
+   display_timer = 0
+   led_number = 1
+   ; Select 5 random ships.
+   while go_on loop
+      ; Set the value to no LED. 
+      for NR_OF_SHIPS using index loop
+         ships[index] = NO_LED
+      end loop
+      ; Select 5 random locations, all must be different.
+      index = 0
+      while (index < NR_OF_SHIPS) loop
+         ; Select a random LED position from 1..8.
+         ship_selected = (random_byte() % 8) + 1
+         counter = 0
+         led_present = FALSE
+         ; See if this ship was already selected.
+         while (counter < NR_OF_SHIPS) loop
+            if (ships[counter] == ship_selected) then
+               led_present = TRUE
+            end if
+            counter = counter + 1
+         end loop
+         if !led_present then
+            ships[index] = ship_selected
+            index = index + 1
+         end if 
+      end loop
+      ; Show the selected LEDs. Translate LEDs 1..8 into bit positions 0..7.
+      ship_value = 0
+      for NR_OF_SHIPS using index loop
+         led_selected = 0x01 << (ships[index] - 1)
+         ship_value = ship_value | led_selected
+      end loop
+      LED_1_8 = ship_value
+      ; Show this for a certain time. Stops when key is pressed.
+      timer = 200 ; Two seconds based on 10 ms.
+      while (timer > 0) & MENU_SWITCH & START_SWITCH loop
+         delay_1ms(10)
+         timer = timer - 1
+      end loop
+      ; If we had a timeout we continue with a new random pattern.
+      go_on = (timer == 0)
+   end loop
+
+   wait_for_both_switches_released()
+   decoder_enable()
+   go_on = TRUE
+   while go_on loop
+      delay_1ms(LOOP_TIME) 
+
+      ; If we receive a message we need to update the display.
+      if decoder_message_received() then
+         pet_dog() ; There was an action, prevent reset.     
+         LED_1_8 = ship_value
+         ; Message received, check if this is for me. 
+         decoder_get_message(ir_toggle, ir_address, ir_data)
+         if (ir_address == my_address) &
+            ((ir_data & IR_MASK_COMMAND) == IR_COMMAND_SHIP) then
+            ; Indicate which location was shot at. We just blink that LED.
+            ir_data = ir_data & IR_MASK_DATA
+            for 3 loop
+               toggle_led(ir_data)
+               delay_1ms(250)
+               toggle_led(ir_data)
+               delay_1ms(250)
+            end loop
+            ; Update the ships, remove the chosen one if present. Note that
+            ; LEDS are numbered 1..8, which should be translated to bit 0..7.
+            ir_data = (0x01 << (ir_data - 1))
+            ship_value = ship_value & !ir_data
+            LED_1_8 = ship_value
+            ; Send the result indicating that we received the message.
+            if (ship_value == 0) then 
+               command_data = IR_COMMAND_SHIP ; No data equals 0.
+               ; We lost so we need to end the game but we can still receive
+               ; retries so we delay the end of the game. 
+               game_lost = TRUE
+               end_of_game_timer = LOST_TIMEOUT
+            else
+               ; It is not important how many ships there are, > 0 is enough.
+               command_data = IR_COMMAND_SHIP | 0x01 
+            end if 
+            decoder_disable()
+            ; Wait for the encoder to be finish the transmission.  
+            while !encoder_ready() loop end loop
+            encoder_send_message(toggle, my_address, command_data)
+            ; Wait until the message is out before enabling the decoder again.
+            while encoder_active() loop end loop
+            decoder_enable()
+         end if
+      end if 
+
+      ; Handle the shooting if a switch is pressed.
+      switch_pressed = get_pressed_switch()
+      ; First see if we need to stop.
+      if (switch_pressed == BOTH_SWITCH_ACTIVE) then
+         go_on = FALSE
+      elsif (switch_pressed == START_SWITCH_ACTIVE) then
+         pet_dog() ; There was an action, prevent reset.   
+         ; Show the current selected LED first.
+         LED_1_8 = ALL_OFF
+         put_led_on(led_number)
+         ; Now check for long keypress.
+         timer = 0
+         while !START_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(LOOP_TIME) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; Shoot using this number.
+            transmit_message = TRUE
+         else
+            ; Short key press, move LED but only if we where not
+            ; yet displaying it.
+            if (led_number < 8) & (display_timer != 0) then 
+               led_number = led_number + 1
+            end if 
+            LED_1_8 = ALL_OFF
+            put_led_on(led_number)
+         end if 
+         display_timer = DISPLAY_TIME
+      elsif (switch_pressed == MENU_SWITCH_ACTIVE) then
+         pet_dog() ; There was an action, prevent reset.   
+         pet_dog() ; There was an action, prevent reset.   
+         ; Show the current selected LED first.
+         LED_1_8 = ALL_OFF
+         put_led_on(led_number)
+         ; Now check for long keypress.
+         timer = 0
+         while !MENU_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(LOOP_TIME) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; Shoot using this number.
+            transmit_message = TRUE
+         else
+            ; Short key press, move LED but only if we where not
+            ; yet displaying it.
+            if (led_number > 1) & (display_timer != 0) then 
+               led_number = led_number - 1
+            end if 
+            LED_1_8 = ALL_OFF
+            put_led_on(led_number)
+         end if 
+         display_timer = DISPLAY_TIME
+       end if 
+
+      ; If we have to transmit a message we need to check if it was
+      ; received by the other side.
+      retry_counter = 0
+      if transmit_message then
+         pet_dog() ; There was an action, prevent reset.     
+         command_data = IR_COMMAND_SHIP | led_number 
+         ; Indicate the transmission. We do not yet know if it is 
+         ; succesful or not so OK and NOK are switched on.
+         LED_OK = ON
+         LED_NOK = ON
+         while transmit_message & (retry_counter < MAX_RETRIES) loop
+            decoder_disable()
+            ; Wait for the encoder to be finish the transmission.  
+            while !encoder_ready() loop end loop
+            encoder_send_message(toggle, my_address, command_data)
+            ; Wait until the message is out before enabling the decoder again.
+            while encoder_active() loop end loop
+            ; Now wait for the answer from the other side. Note that in the
+            ; response it is indicated if there is stil a LED active.
+            ; When this value is 0 we have won since no ships exist anymore.
+            decoder_enable()
+            reply_timer = 0
+            while transmit_message & (reply_timer < REPLY_TIMEOUT) loop
+               delay_1ms(LOOP_TIME)  
+               if decoder_message_received() then
+                  decoder_get_message(ir_toggle, ir_address, ir_data)
+                  if (ir_address == my_address) & 
+                     ((ir_data & IR_MASK_COMMAND) == IR_COMMAND_SHIP) then
+                     ; Data received. Check the contents.
+                     transmit_message = FALSE
+                     if ((ir_data & IR_MASK_DATA) == 0) then
+                        ; No more ships.
+                        game_won = TRUE
+                        go_on = FALSE
+                     end if 
+                  end if 
+               end if
+               reply_timer = reply_timer + 1
+            end loop
+            retry_counter = retry_counter + 1
+         end loop
+         if transmit_message then
+            ; Failed to transmit this message.
+            LED_OK = OFF
+            LED_NOK = ON
+            transmit_message = FALSE
+         else
+            ; Shot was accepted. 
+            LED_OK = ON
+            LED_NOK = OFF
+         end if 
+      end if 
+
+      ; Restore the display with our ships.
+      if (display_timer > 0) then
+         display_timer = display_timer - 1
+      else
+         LED_1_8 = ship_value
+         LED_OK = OFF
+         LED_NOK = OFF
+      end if 
+
+      ; Check if we lost the game and should end it.
+      if game_lost then
+         if (end_of_game_timer > 0) then
+            end_of_game_timer = end_of_game_timer - 1
+         else
+            go_on = FALSE
+         end if 
+      end if   
+
+   end loop
+   decoder_disable()
+   if game_won then
+      show_victory() 
+      LED_OK = ON
+      LED_NOK = OFF
+   else
+      LED_1_8 = ALL_OFF
+      LED_OK = OFF
+      LED_NOK = ON
+      delay_1s(2)
+   end if
+   wait_for_both_switches_released()
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = OFF
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+

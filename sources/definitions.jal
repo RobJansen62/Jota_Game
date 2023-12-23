@@ -1,0 +1,115 @@
+;===============================================================================
+; Title : Global definitions.  
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-19 : Initial version.
+;
+; Compiler: 2.5r8
+;
+; Description: Definition of global constants, variable and pins.
+;
+
+; ========================= Pin definitions  ==========================
+
+; Pin aliases. LEDs are on when the pin is set to ON (high)
+
+alias LED_1_8 is PORTC    ; All LEDs, connected to PORT C.
+; Individual LEDs.
+alias LED_1 is pin_C0     ; Pin 16.
+pin_C0_direction = OUTPUT
+alias LED_2 is pin_C1     ; Pin 15. 
+pin_C1_direction = OUTPUT
+alias LED_3 is pin_C2     ; Pin 14. 
+pin_C2_direction = OUTPUT
+alias LED_4 is pin_C3     ; Pin 7. 
+pin_C3_direction = OUTPUT
+alias LED_5 is pin_C4     ; Pin 6. 
+pin_C4_direction = OUTPUT
+alias LED_6 is pin_C5     ; Pin 5. 
+pin_C5_direction = OUTPUT
+alias LED_7 is pin_C6     ; Pin 8.
+pin_C6_direction = OUTPUT
+alias LED_8 is pin_C7     ; Pin 9. 
+pin_C7_direction = OUTPUT
+
+alias LED_GO is pin_B7   ; Pin 10. 
+pin_B7_direction = OUTPUT
+alias LED_OK is pin_B6   ; Pin 11. 
+pin_B6_direction = OUTPUT
+alias LED_NOK is pin_B5  ; Pin 12. 
+pin_B5_direction = OUTPUT
+
+; Connected Switches, active Low.
+alias MENU_SWITCH is pin_A3  ; Pin 4.
+pin_A3_Direction = INPUT
+alias START_SWITCH is pin_A4 ; Pin 3.
+pin_A4_Direction = INPUT
+
+; Infra red LED. Input is pulled high externally (IR LED is OFF).
+alias IR_LED is pin_A5     ; Pin 2.
+alias IR_LED_DIRECTION is pin_A5_direction
+IR_LED_DIRECTION = INPUT
+
+; Infra red receiver is connected to the INT pin.
+alias IR_RECEIVER is pin_A2 ; Pin 17.
+pin_A2_direction = INPUT
+
+; Power for the infra red receiver, on when HIGH.
+alias IR_RECEIVER_POWER is pin_B4 ; Pin 13.
+pin_B4_direction = OUTPUT
+
+; =========================== Constants & Variables ==========================
+
+; LED_1_8 constants.
+const byte ALL_OFF = 0x00
+const byte ALL_ON  = 0xFF
+
+; Value used to determine when the random patterns stops by itself. This is 
+; based on a timer tick of 200 ms (20 * 10 ms, see random light procedure)
+const word TICKS_UNTIL_RANDOM_LIGHT_END = 300 ; 1 minute
+
+; Value used to determine when the walking menu stops and return the menu item
+; for the light house. The light house value is returned after the number of times
+; the walking menu touches LED_1.
+const byte TICKS_UNTIL_WALKING_MENU_END = 15 ; About 2 minutes
+
+; Value used to determine when the light house switches the power off. This is in
+; 10 ms timer ticks, see the light house routine
+const word TICKS_UNTIL_POWER_DOWN = 30_000 ; 5 minutes. 
+
+; Value used to determine when the device will reset when not being used. This is
+; based on the 1 ms timer interrupt of the timer module.
+const dword TICKS_UNTIL_RESET = 600_000 ; 10 minutes. 
+
+; EEPROM constant.
+const byte EE_ADDRESS = 0x00
+const byte EE_EMPTY   = 0xFF
+
+; Infra-Red address constants. Valued 0x00 and 0xFF should not be used as address.
+const byte BROADCAST_ADDRESS = 0x00
+const byte NO_ADDRESS  = EE_EMPTY 
+const byte MIN_ADDRESS = 0x01
+const byte MAX_ADDRESS = 0xFE
+; For IR transmission we use the data byte to send a command and data. The 4 lsb's
+; are used for data and the 4 msb's as command.
+const byte IR_MASK_DATA     = 0x0F
+const byte IR_MASK_COMMAND  = 0xF0
+const byte IR_COMMAND_NONE  = 0x00
+const byte IR_COMMAND_MORSE = 0x10
+const byte IR_COMMAND_SHIP  = 0x20
+
+; Variables.
+var dword watchdog_counter = 0 ; Reset as startup!
+var byte my_address ; Global infra-red address of this device.
+
+; =================== Function and procedure prototypes ==========================
+
+; Power down the system. The system will be put to sleep and can be woken up 
+; by pressing the start switch.
+procedure power_down() 
+
+; Procedure to reset the watchdog. Must be petted regulary otherwise it will bark
+; (reset) after 10 minutes.
+procedure pet_dog() 

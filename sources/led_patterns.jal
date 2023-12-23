@@ -1,0 +1,197 @@
+;===============================================================================
+; Title : Led patterns for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-10 : Initial version.
+; 2023-11-27 : Added end timer for random light.
+;
+; Compiler: 2.5r8
+;
+; Description: Functions and procedures to provide LED patterns.  
+;
+
+; =========================== Constants & Variables ==========================
+
+; ========================= Functions and procedures ==========================
+
+; Put the given LED on. LED number must be between 1 and 8.
+procedure put_led_on(byte in led_number) is
+
+   case led_number of
+
+      1: LED_1_8 = LED_1_8 | 0b0000_0001
+      2: LED_1_8 = LED_1_8 | 0b0000_0010
+      3: LED_1_8 = LED_1_8 | 0b0000_0100
+      4: LED_1_8 = LED_1_8 | 0b0000_1000
+      5: LED_1_8 = LED_1_8 | 0b0001_0000
+      6: LED_1_8 = LED_1_8 | 0b0010_0000
+      7: LED_1_8 = LED_1_8 | 0b0100_0000
+      8: LED_1_8 = LED_1_8 | 0b1000_0000
+
+   end case
+
+end procedure
+
+
+; Put the given LED off. LED number must be between 1 and 8.
+procedure put_led_off(byte in led_number) is
+
+   case led_number of
+
+      1: LED_1_8 = LED_1_8 & 0b1111_1110
+      2: LED_1_8 = LED_1_8 & 0b1111_1101
+      3: LED_1_8 = LED_1_8 & 0b1111_1011
+      4: LED_1_8 = LED_1_8 & 0b1111_0111
+      5: LED_1_8 = LED_1_8 & 0b1110_1111
+      6: LED_1_8 = LED_1_8 & 0b1101_1111
+      7: LED_1_8 = LED_1_8 & 0b1011_1111
+      8: LED_1_8 = LED_1_8 & 0b0111_1111
+
+   end case
+
+end procedure
+
+; Toggle the given LED. LED number must be between 1 and 8.
+procedure toggle_led(byte in led_number) is
+
+   case led_number of
+
+      1: LED_1_8 = LED_1_8 ^ 0b0000_0001
+      2: LED_1_8 = LED_1_8 ^ 0b0000_0010
+      3: LED_1_8 = LED_1_8 ^ 0b0000_0100
+      4: LED_1_8 = LED_1_8 ^ 0b0000_1000
+      5: LED_1_8 = LED_1_8 ^ 0b0001_0000
+      6: LED_1_8 = LED_1_8 ^ 0b0010_0000
+      7: LED_1_8 = LED_1_8 ^ 0b0100_0000
+      8: LED_1_8 = LED_1_8 ^ 0b1000_0000
+
+   end case
+
+end procedure
+
+
+; Display a bar graph and blink. Used for indicating a score. A value of 0 .. 80 is
+; translated into a bar graph of 0 to 8 LEDs. Stops when a switch is pressed.
+procedure show_bar_graph(byte in value) is
+   
+   const byte BAR_GRAPH_DELAY = 150 ; ms
+   var byte nr_of_shifts, max_bar
+
+   max_bar = 0
+   LED_1_8 = 0b0000_0000
+   nr_of_shifts = (value / 10)
+   wait_for_both_switches_released()
+   while MENU_SWITCH & START_SWITCH loop
+      for nr_of_shifts loop
+         LED_1_8 = (LED_1_8 << 1) | 0b0000_0001
+         delay_1ms(BAR_GRAPH_DELAY)
+      end loop
+      if LED_1_8 > max_bar then
+         max_bar = LED_1_8
+      end if 
+      for nr_of_shifts loop
+         LED_1_8 = (LED_1_8 >> 1) 
+         delay_1ms(BAR_GRAPH_DELAY)
+      end loop
+   end loop
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+end procedure
+
+
+; Show a pattern of LEDs to indicate victory until a key is pressed.
+procedure show_victory() is
+
+   var byte state, switch_timer
+   var bit go_on
+
+   LED_1_8 = ALL_OFF
+   state = 0
+   go_on = TRUE
+   wait_for_both_switches_released()
+   WHILE go_on loop
+
+      case state of
+
+         0:
+         block
+            LED_1_8 = 0b0001_1000
+            state = 1
+         end block
+
+         1:
+         block
+            LED_1_8 = 0b0011_1100
+            state = 2
+         end block
+
+         2:
+         block
+            LED_1_8 = 0b0111_1110
+            state = 3
+         end block
+
+         3:
+         block
+            LED_1_8 = 0b1111_1111
+            state = 4
+         end block
+
+         4:
+         block
+            LED_1_8 = 0b0111_1110
+            state = 5
+         end block
+
+         5:
+         block
+            LED_1_8 = 0b0011_1100
+            state = 0
+         end block
+
+      end case
+
+      ; Create a delay but stop before that if a switch is pressed.
+      switch_timer = 20
+      while (switch_timer != 0) & START_SWITCH & MENU_SWITCH loop
+         delay_1ms(10)
+         switch_timer = switch_timer - 1
+      end loop
+      go_on = (switch_timer == 0)
+
+   end loop
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+end procedure 
+
+
+; Random light. Stop when the menu switch or start switch is pressed and 
+; both released. Also stops when a timeout occurs.
+procedure random_light() is
+
+   var word end_timer
+   var byte switch_timer
+
+   LED_1_8 = ALL_OFF
+   end_timer = 0
+   wait_for_both_switches_released()
+   while MENU_SWITCH & START_SWITCH & 
+         (end_timer <  TICKS_UNTIL_RANDOM_LIGHT_END) loop
+      LED_1_8 = random_byte()
+      end_timer = end_timer + 1
+      switch_timer = 0
+      while (switch_timer < 20) & MENU_SWITCH & START_SWITCH loop
+         switch_timer = switch_timer + 1
+         delay_1ms(10)
+      end loop 
+   end loop
+   pet_dog() ; There was an action, prevent reset.
+   wait_for_both_switches_released()
+   LED_1_8 = ALL_OFF
+
+end procedure
+

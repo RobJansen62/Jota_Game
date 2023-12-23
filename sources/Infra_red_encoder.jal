@@ -1,0 +1,286 @@
+;===============================================================================
+; Title : Infra-Red encoder for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-16 : Initial version.
+;
+; Compiler: 2.5r8
+;
+; Description: Functions and procedures the encoding of the infra-red signal.
+;              Timer 4 is used to generated the encoder signal.
+;              Timer 6 is used to generate the 38 kHz PWM signal.
+;
+; Note:        It is recommended to disable the decoder when transmitting a
+;              message since the transmitted message will be received.
+;
+; Sources:     This is a homebrew format, slightly based on a combination of
+;              the Philips RC6 Remote Control format and the NEC format.
+;
+
+
+; Specification of the homebrew infra-red protocol. This format is slightly 
+; based on the Philips RC6 Remote Control format. 
+;--------------------------------------------------------------------------
+; Bit time is 1 ms. Manchester encoding is used for encoding.
+; Logical '1': A 0.5 ms high pulse followd by a 0.5 ms low pulse.
+; Logical '0': A 0.5 ms low pulse followd by a 0.5 ms high pulse.
+; Message is as follows:
+; -) Burst pulse of 4 ms
+; -) Pause of 2 ms
+; -) Start bit (1)
+; -) Toggle bit
+; -) Address byte
+; -) Data byte
+; -) Stop bit (0)
+;
+; The total transimssion takes about 25 ms. The repeat is set to 100 ms.
+
+; =========================== Constants & Variables ============================
+
+; Constants and variables used for the interrupt driven transmission.
+const byte ENCODER_IDLE    = 0 ; Ready for a transmission.
+const byte ENCODER_BURST   = 1 ; Sending the burst pulse.
+const byte ENCODER_PAUSE   = 2 ; Sending the pause pulse.
+const byte ENCODER_MESSAGE = 3 ; Sending the content of a message.
+const byte ENCODER_END     = 4 ; Sending the stop bit.
+const byte ENCODER_DELAY   = 5 ; Wait time before the next message can be sent.
+
+; Variables
+var dword encoder_shift_register
+var byte encoder_address, encoder_data
+var byte encoder_state 
+var byte bit_counter
+var bit encoder_toggle_bit, encoder_first_bit_half
+
+
+; ========================= Functions and procedures ===========================
+
+; Return TRUE if the encoder is ready to transmit a message, that is no
+; transmisson is active and the repetition time has passed.
+function encoder_ready() return bit is
+
+   return (encoder_state == ENCODER_IDLE)
+
+end function
+
+
+; Return TRUE if the decoder is actively transmitting a message.
+function encoder_active() return bit is
+
+   return (encoder_state != ENCODER_IDLE) & (encoder_state != ENCODER_DELAY)
+         
+
+end function
+
+
+; Put the PWM output on.
+procedure pwm_on is
+
+    IR_LED_DIRECTION = OUTPUT
+
+end procedure
+
+
+; Turn the PWM output off. This pin is pull-up externally, switching the LED off.
+procedure pwm_off is
+
+    IR_LED_DIRECTION = INPUT
+
+end procedure
+
+
+; Initialize the PWM hardware. We use timer 6 and CCP2.
+procedure pwm_init() is
+
+   pwm_off()
+   T6CON_TMR6ON = FALSE
+   ; Register PR6 holds the PWM Timer Period using the following formula:
+   ; PWM Period = (PR6 + 1) * 4 * Tosc * Timer6 prescale * Timer6 postscale
+   ; where Tosc = 1/Fosc and Fosc = 16 MHz. Setting the prescaler to 1, the
+   ; postscaler to 1 and and PR2 at 104:
+   ; (104 + 1) * 4 * 1/16.000.000 * 1 * 1 = 26.25 us Period Cycle ~ 38 kHz
+   T6CON_T6OUTPS = 0b0000 ; Postscaler is 1:1.
+   T6CON_T6CKPS  = 0b00   ; Prescaler divide by 1.
+   PR6 = 104
+   
+   ; Select the timer registers to map the timer to the CCPM output.
+   CCPTMRS = 0b0000_1000 ; CCP2 is based on timer 6.
+   ; We use CCP2 for PWM. Set CCP2CON to single output PWM Mode.
+   CCP2CON_P2M = 0b00
+   ; Set CCP1CON to have P1A low in PWM mode.
+   CCP2CON_CCP2M = 0b1110
+   ; Put CCP2 on RA5.
+   APFCON1_CCP2SEL = TRUE 
+
+   ; The Pulse Width uses the value in CCPR2L and two LSB's in DC2B to get a 
+   ; 10 bit resolution. 10 bits are needed since it runs 4 times as fast, see
+   ; formula below. The Pulse Width becomes:
+   ; CCPR2L + CCP2CON_DCB * Tosc * Timer6 prescale value.
+   ; We set the Pulse with to 13 us which is about 50% of the complete period
+   ; This means a value of 13 us / Tosc (= 1/16 MHz) = 208 = 0xD0 = 0b1101 0000
+   ; So the two lsb bits in CCP2CON_DCB becomes 0b10 and the value of CCPR2L becomes 
+   ; the value shifted right two places = 0b0011_0100
+   CCP2CON_DC2B = 0b00
+   CCPR2L = 0b0011_0100
+   T6CON_TMR6ON = TRUE ; Start the PWM timer.
+
+end procedure
+
+
+; Stop the encoder and put the encoder in idle state. PWM is turned off. 
+procedure encoder_stop() is
+
+   T4CON_TMR4ON = FALSE
+   pwm_off()
+   encoder_state = ENCODER_IDLE
+
+end procedure
+
+
+; Prepare the IR message and start the encoder.
+procedure encoder_start() is
+
+   ; Fill the infra-red shift register with the correct data.
+   ; Set the start bit and the toggle bit. 
+   if encoder_toggle_bit then
+      encoder_shift_register = 0x00_00_03_00
+   else
+      encoder_shift_register = 0x00_00_02_00
+   end if 
+   ; Add the address and data.
+   encoder_shift_register = encoder_shift_register | encoder_address
+   encoder_shift_register = encoder_shift_register << 8
+   encoder_shift_register = encoder_shift_register | encoder_data
+   ; Move all data to the msb.
+   encoder_shift_register = encoder_shift_register << 14
+   ; Start with the burst.
+   bit_counter = 8 ; 8 times 0.5 ms is a burst of 4 ms
+   encoder_first_bit_half = true
+   encoder_state = ENCODER_BURST
+   TMR4 = 0
+   T4CON_TMR4ON = TRUE
+
+end procedure
+
+
+; Intialize the infra-red encoder and PWM hardware. Timer 4 is used for the encoder.
+; The timer clock is set to 2 kHz or 0.5 ms period time. The encoder is not started.
+procedure encoder_init() is
+
+   ; Let timer 4 create a 0.5 ms interrupt.
+   ; Register PR4 holds the Timer Period using the following formula:
+   ; PWM Period = (PR4 + 1) * 4 * Tosc * Timer4 prescale * Timer4 postscale
+   ; where Tosc = 1/Fosc and Fosc = 16 MHz. Setting the prescaler to 1, the
+   ; postscaler to 8 and and PR2 at 249:
+   ; (249 + 1) * 4 * 1/16.000.000 * 1 * 8 = 0.5 ms. Period Cycle = 2 kHz
+   encoder_stop()
+   encoder_toggle_bit = FALSE
+   PIR3_TMR4IF  = FALSE
+   T4CON_T4OUTPS = 0b0111 ; Postscaler is 1:8.
+   T4CON_T4CKPS = 0b00    ; Prescaler divide by 1.
+   PR4 = 249
+   PIE3_TMR4IE  = TRUE ; Enable timer 4 interrupt.
+   INTCON_PEIE  = TRUE ; Enable peripheral interrupt.
+   INTCON_GIE   = TRUE ; Enable global interrupt.
+   ; Also initialize the PWM hardware.
+   pwm_init()
+  
+end procedure
+
+
+; Send a new infra-red message if no transmission is active.
+procedure encoder_send_message(bit in toggle, byte in address, byte in data) is
+
+   if (encoder_state == ENCODER_IDLE) then
+      encoder_toggle_bit = toggle
+      encoder_address = address
+      encoder_data = data
+      encoder_start()
+   end if 
+ 
+end procedure
+
+
+; Encoder interrupt procedure. This interrupt occurs every 0.5 ms.
+procedure encoder_interrupt() is
+   pragma interrupt
+
+   if PIR3_TMR4IF then
+      PIR3_TMR4IF = FALSE
+
+      case encoder_state of
+
+         ENCODER_IDLE:
+         block
+         end block
+
+         ENCODER_BURST:
+         block
+            pwm_on()
+            bit_counter = bit_counter - 1
+            if (bit_counter == 0) then
+               bit_counter = 4 ; 2 ms.
+               encoder_state = ENCODER_PAUSE
+            end if 
+         end block
+
+         ENCODER_PAUSE:
+         block
+            pwm_off()
+            bit_counter = bit_counter - 1
+            if (bit_counter == 0) then
+               bit_counter = 19 ; This includes the stop bit at the end (0).
+               encoder_first_bit_half = true
+               encoder_state = ENCODER_MESSAGE
+            end if 
+         end block
+
+         ENCODER_MESSAGE:
+         block            
+            if encoder_first_bit_half then
+               if (encoder_shift_register & 0x80_00_00_00) > 0 then
+                  pwm_on()
+               else
+                  pwm_off()
+               end if 
+               encoder_first_bit_half = FALSE
+            else
+               if (encoder_shift_register & 0x80_00_00_00) > 0 then
+                  pwm_off()
+               else
+                  pwm_on()
+               end if 
+               encoder_first_bit_half = TRUE
+               encoder_shift_register = encoder_shift_register << 1
+               bit_counter = bit_counter - 1
+               if (bit_counter == 0) then
+                  encoder_state = ENCODER_END
+               end if 
+            end if 
+         end block
+
+         ENCODER_END:
+         block   
+            ; This is second half (end of) the stop bit.   
+            pwm_off()
+            bit_counter = 150 ; Repeat delay. Message repeat is set to 100 ms.
+            encoder_state = ENCODER_DELAY
+         end block
+
+         ENCODER_DELAY:
+         block
+            ; The delay is used to generate the repeat time.
+            bit_counter = bit_counter - 1
+            if (bit_counter == 0) then
+               encoder_stop()
+            end if 
+         end block
+
+      end case
+
+   end if 
+
+end procedure
+

@@ -1,0 +1,234 @@
+;===============================================================================
+; Title : Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-10-30 : Initial version with some LED patterns and switches.
+; 2023-11-05 : Added Reaction Timer and Jota Reaction Game.
+; 2023-11-10 : Added Simon Says.
+; 2023-11-12 : Added Knight Rider pattern.
+; 2023-11-19 : Added Infra-Red feature and Morse Game.
+; 2023-11-21 : Added auto switch to walking menu and sleep.
+; 2023-11-27 : Added watchdog and reset.
+; 2023-12-14 : Added the game battleship.
+;
+; Compiler: 2.5r8
+;
+; Description: Jota Game Main Program.
+;
+
+; Include device file for this PIC and the other libraries.
+include 16f1829           ; JAL Device file.
+include random            ; JAL random library.
+include pic_data_eeprom   ; JAL EEPROM library.
+include pic_configuration ; Clock and PIC hardware settings.  
+include definitions       ; Global aliases, constants and variables.
+include switches          ; Switch routines.  
+include timer             ; Timer routines.
+include led_patterns      ; Functions and procedures to provide LED patterns.     
+include infra_red_decoder ; Function and procedure to receive an infra red message.
+include infra_red_encoder ; Function and procedure to send an infra red message.
+include games_and_actions ; Functions and procedures to proved games and actions.       
+include power             ; Power down routine.
+_usec_delay(250_000)      ; Give the hardware some time to stabilize.
+
+; Special code. If you want to use the BROADCAST_ADDRESS address for the morae
+; functionality then remove the comments from the following section.
+pragma eedata BROADCAST_ADDRESS; This will place it at EEPROM address 0.
+
+; =========================== Constants & Variables ==========================
+
+; Menu selection constants.
+const byte MENU_MENU = 0
+const byte MENU_1 = 1
+const byte MENU_2 = 2
+const byte MENU_3 = 3
+const byte MENU_4 = 4
+const byte MENU_5 = 5
+const byte MENU_6 = 6
+const byte MENU_7 = 7
+const byte MENU_8 = 8
+const byte MENU_IDLE = 9 
+
+; Variables.
+var byte menu_selection, switch_pressed
+
+; ========================= Functions and procedures ===========================
+
+; Get a new infra-red address and return it.
+function get_infra_red_address(byte in address) return byte is
+
+   var byte switch, timer
+   var bit go_on
+  
+   ; Indicate that we are setting the address by having the OK and NOK LED on.
+   ; Note that when the given address quals the BROACAST ADDRESS then we reset
+   ; it to the lowest address.
+   LED_OK = ON
+   LED_NOK = ON
+   LED_1_8 = ALL_OFF
+   go_on = TRUE
+   if (address == BROADCAST_ADDRESS) then
+      address = MIN_ADDRESS
+   end if 
+   wait_for_both_switches_released()
+   while go_on loop
+      LED_1_8 = address ; Update LEDs.
+      switch = get_pressed_switch()
+      if (switch == START_SWITCH_ACTIVE) then
+         ; Check for long key press.
+         timer = 0
+         while !START_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(20) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; We are done.
+            go_on = FALSE
+         else
+            ; Short key press, increment the address.
+            if (address < MAX_ADDRESS) then
+               address = address + 1
+            end if 
+         end if 
+      elsif (switch == MENU_SWITCH_ACTIVE) then
+         ; Check for long key press.
+         timer = 0
+         while !MENU_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
+            delay_1ms(20) 
+            timer = timer + 1
+         end loop
+         if (timer == LONG_KEY_PRESS_TIME) then
+            ; We are done.
+            go_on = FALSE
+         else
+            ; Short key press, decrement the address.
+            if (address > MIN_ADDRESS) then
+               address = address - 1
+            end if 
+         end if 
+      end if 
+   end loop
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_1_8 = ALL_OFF
+   wait_for_both_switches_released()
+
+   return address
+
+end function
+
+; ========================= Main program starts here ==========================
+
+; Initialize the used hardware.
+timer_init()   ; For reaction time measurement.
+decoder_init() ; For infra-red reception.
+encoder_init() ; For infra-red transmission.
+
+; Initialize some global variables and other hardware.
+LED_GO = ON
+LED_OK = ON
+LED_NOK = ON
+LED_1_8 = ALL_ON
+delay_1s(1)
+LED_1_8 = ALL_OFF
+LED_GO = OFF
+LED_OK = OFF
+LED_NOK = OFF
+
+; Read the Infra-Red addres. If not present, set it.
+data_eeprom_read(EE_ADDRESS, my_address)
+if (my_address == EE_EMPTY) then
+   -- Empty EEPROM, set lowest address and store it.
+   my_address = MIN_ADDRESS
+   data_eeprom_write(EE_ADDRESS, my_address)
+end if 
+
+; Check if the user wants to change the infra-red address.
+switch_pressed = get_pressed_switch()
+if (switch_pressed == BOTH_SWITCH_ACTIVE) then
+   my_address = get_infra_red_address(my_address)
+   data_eeprom_write(EE_ADDRESS, my_address)
+end if 
+
+menu_selection = MENU_MENU
+
+; Start with the random lights.
+random_light()
+
+forever  loop 
+
+   ; Use a loop time of 10 ms.
+   delay_1ms(10)
+
+   ; Activate the selectd menu function.
+   case menu_selection of
+
+      MENU_MENU:
+      block
+         menu_selection = walking_menu()
+      end block
+
+      MENU_1:
+      block
+         light_house()
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_2:
+      block
+         snake()
+         menu_selection = MENU_MENU
+     end block
+
+      MENU_3:
+      block
+         knight_rider()
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_4:
+      block
+         simon_says()
+         menu_selection = MENU_MENU
+      end block
+
+
+      MENU_5:
+      block
+         jota_game()
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_6:
+      block
+         pong()
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_7:
+      block
+         morse()
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_8:
+      block
+         battleship()
+;         reaction_timer() ; This has overlap with the jota_game, not used.
+         menu_selection = MENU_MENU
+      end block
+
+      MENU_IDLE:; Currently not used.
+      block
+         ; Check for the menu switch pressed.
+         if menu_switch_pressed() then
+            menu_selection = MENU_MENU
+         end if 
+      end block
+
+   end case
+
+end loop
+

@@ -1,0 +1,130 @@
+;===============================================================================
+; Title : Timer routines for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-12 : Initial version.
+; 2023-11-27 : Added watchdog.
+;
+; Compiler: 2.5r8
+;
+; Description: Functions and procedures for timer 2 functionality. This timer
+;              is used for measurement of the reaction time.
+;              Note that this timer will generate a reset when the watchdog
+;              reached its limit.
+;
+
+
+; =========================== Constants & Variables ============================
+
+var word timeout_counter, measurement_counter
+var bit  timer_timeout
+
+; ========================= Functions and procedures ===========================
+
+
+; Stop the timer.
+procedure timer_stop() is
+
+   T2CON_TMR2ON = FALSE
+
+end procedure
+
+
+; Start the timer.
+procedure timer_start() is
+
+   T2CON_TMR2ON = TRUE
+
+end procedure
+
+
+; Intialize Timer 2. This timer is used for the reaction time games.
+; The timer clock is set to 1 kHz or 1 ms period time. The timer is not started.
+procedure timer_init() is
+
+   ; Let timer 2 create a 1 ms interrupt.
+   ; Register PR2 holds the PWM Timer Period using the following formula:
+   ; PWM Period = (PR2 + 1) * 4 * Tosc * Timer2 prescale * Timer2 postscale
+   ; where Tosc = 1/Fosc and Fosc = 16 MHz. Setting the prescaler to 16, the
+   ; postscaler to 1 and and PR2 at 249:
+   ; (249 + 1) * 4 * 1/16.000.000 * 16 * 1 = 1 ms. Period Cycle = 1 kHz
+   timer_stop()
+   PIR1_TMR2IF  = FALSE
+   timer_timeout = FALSE
+   T2CON_T2OUTPS = 0b0000 ; Postscaler is 1:1 (no postscaling).
+   T2CON_T2CKPS = 0b10   ; Prescaler divide by 16.
+   PR2 = 249
+   PIE1_TMR2IE  = TRUE ; Enable timer 2 interrupt.
+   INTCON_PEIE  = TRUE ; Enable peripheral interrupt.
+   INTCON_GIE   = TRUE ; Enable global interrupt.
+   timer_start()
+
+end procedure
+
+
+; Set the timer to the given time. When set the variable 'timer_timeout' will be set
+; when the time has passed. The value is given in ms.
+procedure timer_set_timeout(word in value) is
+
+   timer_stop()
+   timeout_counter = value
+   timer_timeout = FALSE
+   TMR2 = 0
+   timer_start()
+
+end procedure
+
+
+; Start the timer for a measurement. The measurement is returned by the function
+; 'timer_get_measurement()'. It the measurement takes longer than the given
+; timeout time, the timer_timeout flag will be set.
+procedure timer_start_measurement(word in timeout_time) is
+   
+   timer_stop()
+   PIR1_TMR2IF = FALSE
+   timer_timeout = FALSE
+   TMR2 = 0
+   timeout_counter = timeout_time
+   measurement_counter = 0
+   timer_start()
+
+end procedure
+
+
+; Get the timer measurement and return it. 
+function timer_get_measurement() return word is
+
+   var word return_value
+
+   timer_stop() ; Must be sure that measuremen_counter does not change.
+   return_value = measurement_counter
+   timer_start()
+   return return_value
+
+end function
+
+
+; Timer interrupt procedure. This procedure will indicate when a timeout has passed.
+; It also keeps track of a measurement (when used). This interrupt occurs every 1 ms.
+procedure timer2_interrupt() is
+   pragma interrupt
+
+   if PIR1_TMR2IF then
+      PIR1_TMR2IF = FALSE
+      measurement_counter = measurement_counter + 1
+      if (timeout_counter == 0) then
+         timer_timeout = TRUE
+      else
+         timeout_counter = timeout_counter - 1
+      end if 
+      ; Also count the watchdog timer.
+      watchdog_counter = watchdog_counter + 1 
+      if (watchdog_counter == TICKS_UNTIL_RESET) then
+         watchdog_counter = 0 
+         asm reset
+      end if 
+   end if 
+
+end procedure

@@ -1,0 +1,66 @@
+;===============================================================================
+; Title : Power down routines for Jota Game.
+; Author: Rob Jansen, Copyright (c) 2023 .. 2023, all rights reserved.
+;
+; Revisions
+; ---------
+; 2023-11-19 : Initial version.
+; 2023-11-27 : Added watchdog.
+;
+; Compiler: 2.5r8
+;
+; Description: Defintions and routines for powering down the system and the
+;              watchdog that will prevent a reset of the system.
+;
+
+; =========================== Constants & Variables ==========================
+
+
+; Power down the system. The system will be put to sleep and can be woken up 
+; by pressing the menu switch or start switch.
+procedure power_down() is
+
+   LED_1_8 = ALL_OFF
+   LED_OK = OFF
+   LED_NOK = OFF
+   LED_GO = OFF
+   decoder_disable() ; This will switch off the infra red receiver.
+   ; Enable the interrupt on change so that we can be woken up by the menu switch
+   ; or start swtich. Set the IOC interrupt on the negative edge of the switch. 
+   ; Menu switch is A3 start switch is A4. 
+   IOCAF_IOCAF3 = FALSE ; Flag reset.
+   IOCAF_IOCAF4 = FALSE
+   IOCAN_IOCAN3 = TRUE  ; Trigger on negative edge.
+   IOCAN_IOCAN4 = TRUE
+   INTCON_IOCIE = TRUE  ; Enable interrupt
+   asm sleep ; Power down.
+   ; Wakeup.
+   pet_dog()
+   wait_for_both_switches_released()
+
+end procedure
+
+
+; Interrupt procedure to handle the IOC interrupt
+procedure wakeup_interrupt() is 
+   pragma interrupt
+   
+   if (IOCAF_IOCAF3 | IOCAF_IOCAF4) & INTCON_IOCIE then
+      IOCAF_IOCAF3 = FALSE ; Flag reset (enables for the next time)
+      IOCAF_IOCAF4 = FALSE
+      IOCAN_IOCAN3 = FALSE  ; Disable interrupt on change.
+      IOCAN_IOCAN4 = FALSE 
+      INTCON_IOCIE = FALSE
+   end if 
+
+
+end procedure
+
+
+; Procedure to reset the watchdog. Must be petted regulary otherwise it will bark
+; (reset) after 10 minutes.
+procedure pet_dog() is
+
+   watchdog_counter = 0
+
+end procedure
