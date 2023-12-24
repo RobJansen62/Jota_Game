@@ -33,8 +33,8 @@ include games_and_actions ; Functions and procedures to proved games and actions
 include power             ; Power down routine.
 _usec_delay(250_000)      ; Give the hardware some time to stabilize.
 
-; Special code. If you want to use the BROADCAST_ADDRESS address for the morae
-; functionality then remove the comments from the following section.
+; Special code. If you want to use the BROADCAST_ADDRESS address for the morse
+; game then remove the comments before the pragma of the following line.
 ; pragma eedata BROADCAST_ADDRESS; This will place it at EEPROM address 0.
 
 ; =========================== Constants & Variables ==========================
@@ -49,7 +49,6 @@ const byte MENU_5 = 5
 const byte MENU_6 = 6
 const byte MENU_7 = 7
 const byte MENU_8 = 8
-const byte MENU_IDLE = 9 
 
 ; Variables.
 var byte menu_selection, switch_pressed
@@ -121,7 +120,7 @@ end function
 
 ; ========================= Main program starts here ==========================
 
-; Initialize the used hardware.
+; Initialize the used libaries.
 timer_init()   ; For reaction time measurement.
 decoder_init() ; For infra-red reception.
 encoder_init() ; For infra-red transmission.
@@ -137,7 +136,7 @@ LED_GO = OFF
 LED_OK = OFF
 LED_NOK = OFF
 
-; Read the Infra-Red addres. If not present, set it.
+; Read the Infra-Red address. If not present, set it.
 data_eeprom_read(EE_ADDRESS, my_address)
 if (my_address == EE_EMPTY) then
    -- Empty EEPROM, set lowest address and store it.
@@ -216,16 +215,10 @@ forever  loop
       MENU_8:
       block
          battleship()
-;         reaction_timer() ; This has overlap with the jota_game, not used.
+         ; There was no room for the reaction timer game and it has overlap
+         ; with the Jota game but the code is still there so commented for now.
+         ; reaction_timer() 
          menu_selection = MENU_MENU
-      end block
-
-      MENU_IDLE:; Currently not used.
-      block
-         ; Check for the menu switch pressed.
-         if menu_switch_pressed() then
-            menu_selection = MENU_MENU
-         end if 
       end block
 
    end case

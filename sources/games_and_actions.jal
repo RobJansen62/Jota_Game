@@ -7,6 +7,7 @@
 ; 2023-11-10 : Initial version.
 ; 2023-11-27 : Added watchdog.
 ; 2023-12-14 : Added the game battleship.
+; 2023-12-24 : Reduced max number of Simon Says to 8 and the speed of Pong.
 ;
 ; Compiler: 2.5r8
 ;
@@ -15,21 +16,30 @@
 
 ; =========================== Constants & Variables ==========================
 
-; Reaction times in step of 1 ms.
-const word MAX_REACTION_TIME = 1275
+; Constant for the Simon says game.  This is the maximum number of LEDs that
+; the player must be able to repeat. 
+const byte MAX_SIMON_SAYS = 8
+
+; Reaction times of the Jota game in ms.
+const word MAX_REACTION_TIME = 1_275 
 const word REACTION_TIMES[] = {1_000, 600, 400, 300, 280, 240}
 
-; Some generic constants.
+; Constants for Pong game. It starts with the start time and decreases
+; until the shortest time equals the decrease time which is then the
+; fastest time to repsond ton. With the cureent valute the number of pongs
+; do is 200 / 20 = 10. 
+const byte PONG_LOOP_TIME = 10        ; Is 10 us.
+const word PONG_START_TIME = 20_000   ; In 10 us = 200 ms per LED.
+const word PONG_DECREASE_TIME = 2_000 ; In 10 us = 20 ms per LED.
+
+; Constants for the Morse game.
 const byte LED_DOT  = 0b0001_1000 ; Morse dot.
 const byte LED_DASH = 0b1111_1111 ; Morse dash.
 const byte DATA_DOT  = 0x00 ; Only 4 lsb's can be used.
 const byte DATA_DASH = 0x01 ; Only 4 lsb's can be used.
 
-; Constant for the Simon says game. Nr. of locations to remember.
-const byte MAX_SIMON_SAYS = 10
-
-; Variables.
-var byte simon_says_array[MAX_SIMON_SAYS]
+; Number of random battleships that are selected to play Battelship. 
+const byte NR_OF_BATTLE_SHIPS = 5
 
 ; ========================= Functions and procedures ==========================
 
@@ -236,6 +246,7 @@ end procedure
 ; when the user has completed the game. 
 procedure simon_says() is 
 
+   var byte simon_says_array[MAX_SIMON_SAYS]
    var byte difficulty, switch_pressed
    var byte index, led_number, timer
    var bit go_on, round_active
@@ -411,7 +422,8 @@ end procedure
 
 
 ; Reaction time measurement. Stops when the maximum time was measured or
-; if the user presses the MENU switch.
+; if the user presses the MENU switch. 
+; Note: This game is currently not being used but has been tested.
 procedure reaction_timer() is
 
    var word reaction_time, wait_time
@@ -540,7 +552,9 @@ procedure jota_game() is
          if timer_timeout then
             ; Too long.
             LED_NOK = ON
-            LED_1_8 = ALL_ON
+            ; Show the reaction time.
+            show_reaction_time(reaction_time)
+ ;           LED_1_8 = ALL_ON
             if (round != 0) then
                round = round - 1
             end if 
@@ -585,14 +599,12 @@ end procedure
 ; the MENU switch.
 procedure pong() is
   
-   const word PONG_START_TIME = 10_000 ; In 10 us = 100 ms per LED.
-   const word PONG_DECREASE_TIME = 500 ; In 10 us = 5 ms
    var word set_time, delay_timer
    var byte round, switch_pressed, led_value
-   var bit go_on, in_time, left_shift
+   var bit go_on, in_time, left_shift, end_reached
 
    go_on = TRUE
-   LED_GO = FALSE
+   LED_GO = OFF
    wait_for_both_switches_released()
    ; Show a starting pattern for pong.
    while go_on loop
@@ -615,83 +627,94 @@ procedure pong() is
    LED_1_8 = ALL_OFF
    go_on = TRUE
    while go_on loop
-      LED_GO = TRUE
+      ; Reset game.
+      LED_OK = OFF
+      LED_NOK = OFF
+      LED_GO = ON
       in_time = TRUE
       led_value = 0b_0000_0001
       LED_1_8 = led_value
       set_time = PONG_START_TIME 
       left_shift = TRUE
+      end_reached = FALSE
       round = 0
       while go_on & in_time loop
+         ; Playing game. 
          delay_timer = 0
          while (delay_timer < set_time) loop
             delay_timer = delay_timer + 1
-            _usec_delay(10)
+            _usec_delay(PONG_LOOP_TIME)
          end loop
          if left_shift then
             led_value = led_value << 1
          else 
             led_value = led_value >> 1
          end if 
-         delay_timer = 0
+         LED_1_8 = led_value 
          if (led_value & 0b1000_0001) != 0 then
-            ; We are at the end, wait for key press. If any switch is 
-            ; already pressed then that is an error. Note that we did
-            ; not yet update the display so a switch must not be pressed.
-            if !MENU_SWITCH | !START_SWITCH then
+            ; We are at the end. Now the user must press the correct switch
+            ; within the current set time.
+            delay_timer = 0
+            if left_shift then
+               while (delay_timer < set_time) & START_SWITCH loop
+                  delay_timer = delay_timer + 1
+                  _usec_delay(PONG_LOOP_TIME)
+               end loop
+               wait_for_start_switch_released()
+            else
+               while (delay_timer < set_time) & MENU_SWITCH loop
+                  delay_timer = delay_timer + 1
+                  _usec_delay(PONG_LOOP_TIME)
+              end loop
+               wait_for_menu_switch_released()
+            end if 
+            left_shift = !left_shift
+            ; See if the user was in time with his or her reaction.
+            if (delay_timer == set_time) then
                in_time = FALSE
             else
-               ; Now we update the display. 
-               LED_1_8 = led_value
-               if left_shift then
-                  while (delay_timer < set_time) & START_SWITCH loop
-                     delay_timer = delay_timer + 1
-                     _usec_delay(10)
-                  end loop
-               else
-                  while (delay_timer < set_time) & MENU_SWITCH loop
-                     delay_timer = delay_timer + 1
-                     _usec_delay(10)
-                  end loop
-               end if 
-               left_shift = !left_shift
-               ; See if the user was in time with his or her reaction.
-               if (delay_timer == set_time) then
-                  in_time = FALSE
-               end if 
+               pet_dog() ; There was an action, prevent PIC reset.     
             end if 
-            if in_time then
-               LED_NOK = FALSE
-               LED_OK = TRUE
+            end_reached = TRUE
+         else
+            ; Not at the end, no switch must be pressed.
+            if !MENU_SWITCH | !START_SWITCH then
+               wait_for_both_switches_released()
+               pet_dog() ; There was an action, prevent PIC reset.     
+               in_time = FALSE
+            end if 
+            end_reached = FALSE
+         end if 
+         ; Are we still doing OK?
+         if in_time then
+            ; Still OK, if at the end increase the speed.
+            if end_reached then
+               LED_OK = ON
                round = round + 1
+               ; Go faster.
                if (set_time > PONG_DECREASE_TIME) then
                   set_time = set_time - PONG_DECREASE_TIME
                else
                   go_on = FALSE ; We are done.
                end if 
             else
-               LED_OK = FALSE
-               LED_NOK = TRUE
-               LED_GO = FALSE
-               if (set_time < PONG_START_TIME) then
-                  set_time = set_time + PONG_DECREASE_TIME
-               end if
-               wait_for_both_switches_released()
-               ; See what the user wants to do.
-               repeat
-                  switch_pressed = get_pressed_switch()
-               until switch_pressed != NO_SWITCH_ACTIVE
-               if switch_pressed == MENU_SWITCH_ACTIVE then
-                  go_on = FALSE ; Exit game.
-               else
-                  LED_NOK = FALSE
-               end if
-               pet_dog() ; There was an action, prevent reset.     
-               wait_for_both_switches_released()
+               LED_OK = OFF
             end if 
-         else
-            ; Not at the end, just update the display.
-            LED_1_8 = led_value
+         else 
+            ; Lost this game, reset game.
+            LED_OK = OFF
+            LED_NOK = ON
+            LED_GO = OFF
+            wait_for_both_switches_released()
+            ; See what the user wants to do, continue or stop.
+            repeat
+               switch_pressed = get_pressed_switch()
+            until switch_pressed != NO_SWITCH_ACTIVE
+            if switch_pressed == MENU_SWITCH_ACTIVE then
+               go_on = FALSE ; Exit game, else reset game.
+            end if
+            pet_dog() ; There was an action, prevent PIC reset.     
+            wait_for_both_switches_released()
          end if 
       end loop       
    end loop
@@ -700,8 +723,11 @@ procedure pong() is
    LED_NOK = OFF
    LED_GO = OFF
    if (set_time > PONG_DECREASE_TIME) then
-      show_bar_graph(round * 4) 
+      ; Not ended completely. 
+      ; Bar graph is from 0 .. 80 and rounds from 0 .. 9.
+      show_bar_graph(round * 8) 
    else
+      ; All rounds completed.
       show_victory() 
    end if
    wait_for_both_switches_released
@@ -722,7 +748,7 @@ procedure morse_send() is
    decoder_disable()
    led_value = LED_DOT ; Start value is dot.
    LED_1_8 = led_value
-   LED_GO = TRUE
+   LED_GO = ON
    go_on = TRUE
    toggle = TRUE ; To indicate a new message.
    transmit_message = FALSE
@@ -798,6 +824,7 @@ procedure morse_receive() is
 
    var byte ir_address, ir_data
    var byte previous_address, previous_data
+   var byte switch_pressed
    var bit ir_toggle, previous_toggle
 
    wait_for_both_switches_released()
@@ -809,7 +836,8 @@ procedure morse_receive() is
    previous_toggle = FALSE
    LED_1_8 = ALL_OFF
    LED_GO = ON
-   while MENU_SWITCH & START_SWITCH loop
+   switch_pressed = get_pressed_switch()
+   while (switch_pressed != BOTH_SWITCH_ACTIVE)  loop
       if decoder_message_received() then
          pet_dog() ; There was an action, prevent reset.     
          ; Message received, check if this is for me. A broadcast message
@@ -832,12 +860,13 @@ procedure morse_receive() is
                   LED_1_8 = LED_DASH
               end if 
                ; Indicate reception.
-               LED_OK = TRUE
+               LED_OK = ON
                delay_1ms(300)
-               LED_OK = FALSE
+               LED_OK = OFF
             end if 
           end if
       end if 
+      switch_pressed = get_pressed_switch()
    end loop
    decoder_disable() ; Save power by switching the receiver off.
 
@@ -890,7 +919,6 @@ end procedure
 procedure battleship() is
 
    const byte LOOP_TIME = 20 ; 20 ms.
-   const byte NR_OF_SHIPS = 5
    const byte MAX_RETRIES = 5
    const byte REPLY_TIMEOUT = 100 ; In 20 ms steps so max 2 seconds.
    const byte LOST_TIMEOUT  = 100 ; In 20 ms steps so max 2 seconds.
@@ -898,11 +926,11 @@ procedure battleship() is
    const byte NO_LED = 0 ; LEDs are from bit 1..8.
    const byte OK_NOK_LED_ON_TIME = 5
 
-   var byte ships[NR_OF_SHIPS] 
+   var byte ships[NR_OF_BATTLE_SHIPS] 
    var byte counter, ship_selected, ship_value, index, switch_pressed
    var byte ir_address, ir_data, command_data
    var byte retry_counter, reply_timer, display_timer, end_of_game_timer, timer
-   var byte led_number, led_selected
+   var byte led_number, led_selected, ship_shot
    var bit led_present, go_on, game_won, game_lost
    var bit ir_toggle, toggle, message_received, transmit_message
 
@@ -914,25 +942,25 @@ procedure battleship() is
    LED_1_8 = ALL_OFF
    LED_OK = OFF
    LED_NOK = OFF
-   LED_GO = ON
+   LED_GO = OFF
    transmit_message = FALSE
    display_timer = 0
    led_number = 1
    ; Select 5 random ships.
    while go_on loop
       ; Set the value to no LED. 
-      for NR_OF_SHIPS using index loop
+      for NR_OF_BATTLE_SHIPS using index loop
          ships[index] = NO_LED
       end loop
       ; Select 5 random locations, all must be different.
       index = 0
-      while (index < NR_OF_SHIPS) loop
+      while (index < NR_OF_BATTLE_SHIPS) loop
          ; Select a random LED position from 1..8.
          ship_selected = (random_byte() % 8) + 1
          counter = 0
          led_present = FALSE
          ; See if this ship was already selected.
-         while (counter < NR_OF_SHIPS) loop
+         while (counter < NR_OF_BATTLE_SHIPS) loop
             if (ships[counter] == ship_selected) then
                led_present = TRUE
             end if
@@ -945,7 +973,7 @@ procedure battleship() is
       end loop
       ; Show the selected LEDs. Translate LEDs 1..8 into bit positions 0..7.
       ship_value = 0
-      for NR_OF_SHIPS using index loop
+      for NR_OF_BATTLE_SHIPS using index loop
          led_selected = 0x01 << (ships[index] - 1)
          ship_value = ship_value | led_selected
       end loop
@@ -962,6 +990,7 @@ procedure battleship() is
 
    wait_for_both_switches_released()
    decoder_enable()
+   LED_GO = ON
    go_on = TRUE
    while go_on loop
       delay_1ms(LOOP_TIME) 
@@ -974,14 +1003,10 @@ procedure battleship() is
          decoder_get_message(ir_toggle, ir_address, ir_data)
          if (ir_address == my_address) &
             ((ir_data & IR_MASK_COMMAND) == IR_COMMAND_SHIP) then
-            ; Indicate which location was shot at. We just blink that LED.
+            LED_OK = ON ; Indicate reception.
+            ; Get the LED which was selected.
             ir_data = ir_data & IR_MASK_DATA
-            for 3 loop
-               toggle_led(ir_data)
-               delay_1ms(250)
-               toggle_led(ir_data)
-               delay_1ms(250)
-            end loop
+            ship_shot = ir_data
             ; Update the ships, remove the chosen one if present. Note that
             ; LEDS are numbered 1..8, which should be translated to bit 0..7.
             ir_data = (0x01 << (ir_data - 1))
@@ -998,6 +1023,14 @@ procedure battleship() is
                ; It is not important how many ships there are, > 0 is enough.
                command_data = IR_COMMAND_SHIP | 0x01 
             end if 
+            ; Now blink the ship that was shot at.
+            for 3 loop
+               toggle_led(ship_shot)
+               delay_1ms(250)
+               toggle_led(ship_shot)
+               delay_1ms(250)
+            end loop
+            LED_OK = OFF
             decoder_disable()
             ; Wait for the encoder to be finish the transmission.  
             while !encoder_ready() loop end loop
@@ -1095,7 +1128,7 @@ procedure battleship() is
                      ; Data received. Check the contents.
                      transmit_message = FALSE
                      if ((ir_data & IR_MASK_DATA) == 0) then
-                        ; No more ships.
+                        ; No more ships. We won the game.
                         game_won = TRUE
                         go_on = FALSE
                      end if 

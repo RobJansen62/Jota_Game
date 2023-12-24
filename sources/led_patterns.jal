@@ -73,27 +73,35 @@ end procedure
 
 
 ; Display a bar graph and blink. Used for indicating a score. A value of 0 .. 80 is
-; translated into a bar graph of 0 to 8 LEDs. Stops when a switch is pressed.
+; translated into a bar graph of 1 to 8 LEDs. Stops when a switch is pressed.
 procedure show_bar_graph(byte in value) is
    
    const byte BAR_GRAPH_DELAY = 150 ; ms
-   var byte nr_of_shifts, max_bar
+   var byte nr_of_shifts, counter
 
-   max_bar = 0
    LED_1_8 = 0b0000_0000
    nr_of_shifts = (value / 10)
+   ; We need at least one LED to be active.
+   if (nr_of_shifts == 0) then
+      nr_of_shifts = 1
+   end if 
    wait_for_both_switches_released()
    while MENU_SWITCH & START_SWITCH loop
       for nr_of_shifts loop
          LED_1_8 = (LED_1_8 << 1) | 0b0000_0001
-         delay_1ms(BAR_GRAPH_DELAY)
+         counter = 0
+         while (counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
+            delay_1ms(1)
+            counter = counter + 1
+         end loop
       end loop
-      if LED_1_8 > max_bar then
-         max_bar = LED_1_8
-      end if 
       for nr_of_shifts loop
          LED_1_8 = (LED_1_8 >> 1) 
-         delay_1ms(BAR_GRAPH_DELAY)
+         counter = 0
+         while (counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
+            delay_1ms(1)
+            counter = counter + 1
+         end loop
       end loop
    end loop
    wait_for_both_switches_released()
@@ -180,7 +188,7 @@ procedure random_light() is
    end_timer = 0
    wait_for_both_switches_released()
    while MENU_SWITCH & START_SWITCH & 
-         (end_timer <  TICKS_UNTIL_RANDOM_LIGHT_END) loop
+         (end_timer < TICKS_UNTIL_RANDOM_LIGHT_END) loop
       LED_1_8 = random_byte()
       end_timer = end_timer + 1
       switch_timer = 0

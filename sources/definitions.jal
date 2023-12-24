@@ -8,7 +8,7 @@
 ;
 ; Compiler: 2.5r8
 ;
-; Description: Definition of global constants, variable and pins.
+; Description: Definition of global constants, variable and pins. 
 ;
 
 ; ========================= Pin definitions  ==========================
@@ -73,15 +73,15 @@ const word TICKS_UNTIL_RANDOM_LIGHT_END = 300 ; 1 minute
 ; Value used to determine when the walking menu stops and return the menu item
 ; for the light house. The light house value is returned after the number of times
 ; the walking menu touches LED_1.
-const byte TICKS_UNTIL_WALKING_MENU_END = 15 ; About 2 minutes
+const byte TICKS_UNTIL_WALKING_MENU_END = 15 ; About 2 minutes.
 
 ; Value used to determine when the light house switches the power off. This is in
-; 10 ms timer ticks, see the light house routine
-const word TICKS_UNTIL_POWER_DOWN = 30_000 ; 5 minutes. 
+; 10 ms timer ticks, see the light house routine.
+const word TICKS_UNTIL_POWER_DOWN = 18_000 ; 3 minutes. 
 
 ; Value used to determine when the device will reset when not being used. This is
 ; based on the 1 ms timer interrupt of the timer module.
-const dword TICKS_UNTIL_RESET = 600_000 ; 10 minutes. 
+const dword TICKS_UNTIL_RESET = 300_000 ; 5 minutes. 
 
 ; EEPROM constant.
 const byte EE_ADDRESS = 0x00
@@ -89,9 +89,10 @@ const byte EE_EMPTY   = 0xFF
 
 ; Infra-Red address constants. Valued 0x00 and 0xFF should not be used as address.
 const byte BROADCAST_ADDRESS = 0x00
-const byte NO_ADDRESS  = EE_EMPTY 
-const byte MIN_ADDRESS = 0x01
-const byte MAX_ADDRESS = 0xFE
+const byte NO_ADDRESS        = EE_EMPTY 
+const byte MIN_ADDRESS       = 0x01
+const byte MAX_ADDRESS       = 0xFE
+
 ; For IR transmission we use the data byte to send a command and data. The 4 lsb's
 ; are used for data and the 4 msb's as command.
 const byte IR_MASK_DATA     = 0x0F

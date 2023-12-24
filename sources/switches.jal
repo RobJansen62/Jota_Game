@@ -28,7 +28,7 @@ const byte LONG_KEY_PRESS_TIME = 25 ; 0.5 second, based on 20 ms delay.
 ; Wait a certain debounce time. Needed after a key press.
 procedure debounce() is
 
-   delay_1ms(50)
+   delay_1ms(25)
 
 end procedure
 

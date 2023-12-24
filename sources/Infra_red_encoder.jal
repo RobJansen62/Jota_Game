@@ -21,7 +21,7 @@
 
 
 ; Specification of the homebrew infra-red protocol. This format is slightly 
-; based on the Philips RC6 Remote Control format. 
+; based on the Philips RC6 Remote Control format and the NEC format.
 ;--------------------------------------------------------------------------
 ; Bit time is 1 ms. Manchester encoding is used for encoding.
 ; Logical '1': A 0.5 ms high pulse followd by a 0.5 ms low pulse.
@@ -29,13 +29,13 @@
 ; Message is as follows:
 ; -) Burst pulse of 4 ms
 ; -) Pause of 2 ms
-; -) Start bit (1)
-; -) Toggle bit
+; -) Start bit = 1
+; -) Toggle bit 
 ; -) Address byte
 ; -) Data byte
-; -) Stop bit (0)
+; -) Stop bit = 0
 ;
-; The total transimssion takes about 25 ms. The repeat is set to 100 ms.
+; The total transimssion takes about 25 ms. The repeat time is set to 100 ms.
 
 ; =========================== Constants & Variables ============================
 
@@ -46,6 +46,10 @@ const byte ENCODER_PAUSE   = 2 ; Sending the pause pulse.
 const byte ENCODER_MESSAGE = 3 ; Sending the content of a message.
 const byte ENCODER_END     = 4 ; Sending the stop bit.
 const byte ENCODER_DELAY   = 5 ; Wait time before the next message can be sent.
+
+; Repeat delay after sending a message. The message takes 25 ms. We set the
+; repeat delay to 75 ms so that the total repeat of a message becomes 100 ms
+const byte ENCODER_REPEAT_DELAY = 150 ; Is 75 ms since bit-time is 0.5 ms.
 
 ; Variables
 var dword encoder_shift_register
@@ -265,7 +269,7 @@ procedure encoder_interrupt() is
          block   
             ; This is second half (end of) the stop bit.   
             pwm_off()
-            bit_counter = 150 ; Repeat delay. Message repeat is set to 100 ms.
+            bit_counter = ENCODER_REPEAT_DELAY 
             encoder_state = ENCODER_DELAY
          end block
 
