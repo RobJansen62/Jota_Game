@@ -72,35 +72,36 @@ procedure toggle_led(byte in led_number) is
 end procedure
 
 
-; Display a bar graph and blink. Used for indicating a score. A value of 0 .. 80 is
+; Display a bar graph and blink. Used for indicating a score. A value of 1 .. 8 is
 ; translated into a bar graph of 1 to 8 LEDs. Stops when a switch is pressed.
 procedure show_bar_graph(byte in value) is
    
    const byte BAR_GRAPH_DELAY = 150 ; ms
-   var byte nr_of_shifts, counter
+   var byte delay_counter
 
    LED_1_8 = 0b0000_0000
-   nr_of_shifts = (value / 10)
-   ; We need at least one LED to be active.
-   if (nr_of_shifts == 0) then
-      nr_of_shifts = 1
+   ; Do a range check and always show at least one LED.
+   if (value == 0) then
+      value = 1
+   elsif (value > 8) then
+      value = 8
    end if 
    wait_for_both_switches_released()
    while MENU_SWITCH & START_SWITCH loop
-      for nr_of_shifts loop
+      for value loop
          LED_1_8 = (LED_1_8 << 1) | 0b0000_0001
-         counter = 0
-         while (counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
+         delay_counter = 0
+         while (delay_counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
             delay_1ms(1)
-            counter = counter + 1
+            delay_counter = delay_counter + 1
          end loop
       end loop
-      for nr_of_shifts loop
+      for value loop
          LED_1_8 = (LED_1_8 >> 1) 
-         counter = 0
-         while (counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
+         delay_counter = 0
+         while (delay_counter < BAR_GRAPH_DELAY) & MENU_SWITCH & START_SWITCH loop
             delay_1ms(1)
-            counter = counter + 1
+            delay_counter = delay_counter + 1
          end loop
       end loop
    end loop

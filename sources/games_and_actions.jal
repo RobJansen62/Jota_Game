@@ -27,7 +27,7 @@ const word REACTION_TIMES[] = {1_000, 600, 400, 300, 280, 240}
 ; Constants for Pong game. It starts with the start time and decreases
 ; until the shortest time equals the decrease time which is then the
 ; fastest time to repsond ton. With the cureent valute the number of pongs
-; do is 200 / 20 = 10. 
+; do is 200 / 20 = 10. Always make it 10 rounds.
 const byte PONG_LOOP_TIME = 10        ; Is 10 us.
 const word PONG_START_TIME = 20_000   ; In 10 us = 200 ms per LED.
 const word PONG_DECREASE_TIME = 2_000 ; In 10 us = 20 ms per LED.
@@ -376,7 +376,9 @@ procedure simon_says() is
    if (difficulty == MAX_SIMON_SAYS) then
       show_victory()
    else 
-      show_bar_graph(difficulty * 8)
+      ; Bar graph goes from 1 .. 8. Keep in line
+      ; with MAX_SIMON_SAYS.
+      show_bar_graph(difficulty)
    end if 
    wait_for_both_switches_released()
    LED_OK = OFF
@@ -550,11 +552,10 @@ procedure jota_game() is
          LED_GO = OFF 
          reaction_time = timer_get_measurement()
          if timer_timeout then
-            ; Too long.
+            ; Overflows it not pressed before the curren reaction time.
             LED_NOK = ON
-            ; Show the reaction time.
-            show_reaction_time(reaction_time)
- ;           LED_1_8 = ALL_ON
+            ; Show the maximum time as indication that it was too long.
+            LED_1_8 = ALL_ON
             if (round != 0) then
                round = round - 1
             end if 
@@ -587,7 +588,9 @@ procedure jota_game() is
    if (round == count(REACTION_TIMES)) then
       show_victory()
    else 
-      show_bar_graph((round + 1) * 12)
+      ; Bar graph goes from 1 .. 8. Keep in line with
+      ; the maximum number of REACTION_TIMES.
+      show_bar_graph(round + 1)
    end if 
    wait_for_both_switches_released()
    LED_1_8 = ALL_OFF
@@ -626,69 +629,86 @@ procedure pong() is
 
    LED_1_8 = ALL_OFF
    go_on = TRUE
+   wait_for_both_switches_released()
    while go_on loop
       ; Reset game.
       LED_OK = OFF
       LED_NOK = OFF
       LED_GO = ON
       in_time = TRUE
-      led_value = 0b_0000_0001
+      led_value = 0b_0000_0001 
       LED_1_8 = led_value
       set_time = PONG_START_TIME 
       left_shift = TRUE
       end_reached = FALSE
       round = 0
       while go_on & in_time loop
-         ; Playing game. 
-         delay_timer = 0
-         while (delay_timer < set_time) loop
-            delay_timer = delay_timer + 1
-            _usec_delay(PONG_LOOP_TIME)
-         end loop
+
          if left_shift then
             led_value = led_value << 1
          else 
             led_value = led_value >> 1
          end if 
          LED_1_8 = led_value 
-         if (led_value & 0b1000_0001) != 0 then
-            ; We are at the end. Now the user must press the correct switch
-            ; within the current set time.
-            delay_timer = 0
-            if left_shift then
-               while (delay_timer < set_time) & START_SWITCH loop
-                  delay_timer = delay_timer + 1
-                  _usec_delay(PONG_LOOP_TIME)
-               end loop
-               wait_for_start_switch_released()
-            else
-               while (delay_timer < set_time) & MENU_SWITCH loop
-                  delay_timer = delay_timer + 1
-                  _usec_delay(PONG_LOOP_TIME)
-              end loop
-               wait_for_menu_switch_released()
-            end if 
-            left_shift = !left_shift
-            ; See if the user was in time with his or her reaction.
+
+         ; Check if we are at one of the ends
+         delay_timer = 0
+         if ((led_value & 0b1000_0000) != 0) then
+            ; We are at LED 8 (msb) so we where shifting left.
+            ; The start switch must now be pressed in time. 
+            while (delay_timer < set_time) & START_SWITCH loop
+               delay_timer = delay_timer + 1
+               _usec_delay(PONG_LOOP_TIME)
+            end loop
+            wait_for_start_switch_released()
+            ;debounce() 
             if (delay_timer == set_time) then
+               ; This means that the user waited for too long.
+               ; which means that we where already on our way back.
                in_time = FALSE
+               put_led_off(8)
+               put_led_on(7)
             else
+               end_reached = TRUE
                pet_dog() ; There was an action, prevent PIC reset.     
             end if 
-            end_reached = TRUE
+         elsif ((led_value & 0b0000_0001) != 0) then
+            ; We are at LED 1 (lsb) so we where shifting right.
+            ; The menu switch must now be pressed in time. 
+            while (delay_timer < set_time) & MENU_SWITCH loop
+               delay_timer = delay_timer + 1
+               _usec_delay(PONG_LOOP_TIME)
+            end loop
+            wait_for_menu_switch_released()
+            if (delay_timer == set_time) then
+               ; This means that the user waited for too long.
+               ; which means that we where already on our way back.
+               in_time = FALSE
+               put_led_off(1)
+               put_led_on(2)
+            else
+               end_reached = TRUE
+               pet_dog() ; There was an action, prevent PIC reset.     
+            end if 
          else
             ; Not at the end, no switch must be pressed.
-            if !MENU_SWITCH | !START_SWITCH then
-               wait_for_both_switches_released()
+            while (delay_timer < set_time) & MENU_SWITCH & START_SWITCH loop
+               delay_timer = delay_timer + 1
+               _usec_delay(PONG_LOOP_TIME)
+            end loop
+            if (delay_timer != set_time) then
+               ; A switch was pressed before the delay time. 
                pet_dog() ; There was an action, prevent PIC reset.     
                in_time = FALSE
             end if 
             end_reached = FALSE
          end if 
+
          ; Are we still doing OK?
          if in_time then
             ; Still OK, if at the end increase the speed.
             if end_reached then
+               left_shift = !left_shift
                LED_OK = ON
                round = round + 1
                ; Go faster.
@@ -716,19 +736,23 @@ procedure pong() is
             pet_dog() ; There was an action, prevent PIC reset.     
             wait_for_both_switches_released()
          end if 
+
       end loop       
    end loop
-   wait_for_both_switches_released()
    LED_OK = OFF
    LED_NOK = OFF
    LED_GO = OFF
-   if (set_time > PONG_DECREASE_TIME) then
-      ; Not ended completely. 
-      ; Bar graph is from 0 .. 80 and rounds from 0 .. 9.
-      show_bar_graph(round * 8) 
-   else
+   wait_for_both_switches_released()
+   if (round == 10) then
       ; All rounds completed.
       show_victory() 
+   else
+      ; Not ended completely. Bar graph goes from 1 .. 8.
+      ; Keep in line with PONG_START_TIME / PONG_DECREASE_TIME.
+      if (round > 0) then
+         round = round - 1
+      end if
+      show_bar_graph(round) 
    end if
    wait_for_both_switches_released
    LED_1_8 = ALL_OFF
