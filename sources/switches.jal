@@ -5,6 +5,7 @@
 ; Revisions
 ; ---------
 ; 2023-11-03 : Initial version.
+; 2023-12-26 : Added pet_dog() to switches to prevent reset of Jota Game.
 ;
 ; Compiler: 2.5r8
 ;
@@ -25,10 +26,12 @@ const byte LONG_KEY_PRESS_TIME = 25 ; 0.5 second, based on 20 ms delay.
 
 ; ========================= Functions and procedures ==========================
 
-; Wait a certain debounce time. Needed after a key press.
-procedure debounce() is
+; Wait a certain switch_debounce time. Needed after a key press. Because there 
+; was a switch activity we will also prevent the watchdog to bite.
+procedure switch_debounce() is
 
    delay_1ms(50)
+   pet_dog()
 
 end procedure
 
@@ -39,7 +42,7 @@ function both_switches_pressed() return bit is
    var bit switch_is_pressed = FALSE
 
    if !MENU_SWITCH  & !START_SWITCH then
-      debounce()
+      switch_debounce()
       ; Check if still pressed.
       if !MENU_SWITCH & !START_SWITCH then
          switch_is_pressed = TRUE
@@ -56,7 +59,7 @@ function both_switches_released() return bit is
    var bit switches_free = FALSE
 
    if START_SWITCH & MENU_SWITCH then
-      debounce()
+      switch_debounce()
       if START_SWITCH & MENU_SWITCH then
          switches_free = TRUE
       end if 
@@ -72,7 +75,7 @@ function menu_switch_pressed() return bit is
    var bit switch_is_pressed = FALSE
 
    if !MENU_SWITCH then
-      debounce()
+      switch_debounce()
       ; Check if still pressed.
       if !MENU_SWITCH then
          switch_is_pressed = TRUE
@@ -89,7 +92,7 @@ function start_switch_pressed() return bit is
    var bit switch_is_pressed = FALSE
 
    if !START_SWITCH then
-      debounce()
+      switch_debounce()
       ; Check if still pressed.
       if !START_SWITCH then
          switch_is_pressed = TRUE
@@ -104,7 +107,7 @@ end function
 procedure wait_for_menu_switch_pressed() is
 
    while MENU_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while MENU_SWITCH loop end loop
 
 end procedure
@@ -114,7 +117,7 @@ end procedure
 procedure wait_for_menu_switch_released() is
 
    while !MENU_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while !MENU_SWITCH loop end loop
 
 end procedure
@@ -124,7 +127,7 @@ end procedure
 procedure wait_for_start_switch_pressed() is
 
    while START_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while START_SWITCH loop end loop
 
 end procedure
@@ -134,7 +137,7 @@ end procedure
 procedure wait_for_start_switch_released() is
 
    while !START_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while !START_SWITCH loop end loop
 
 end procedure
@@ -144,7 +147,7 @@ end procedure
 procedure wait_for_any_switch_pressed() is
 
    while MENU_SWITCH & START_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while MENU_SWITCH & START_SWITCH loop end loop
 
 end procedure
@@ -154,7 +157,7 @@ end procedure
 procedure wait_for_both_switches_released() is
 
    while !MENU_SWITCH | !START_SWITCH loop end loop
-   debounce()
+   switch_debounce()
    while !MENU_SWITCH | !START_SWITCH loop end loop
 
 end procedure
@@ -166,10 +169,10 @@ function get_pressed_switch() return byte is
    var byte active_switch = NO_SWITCH_ACTIVE
 
    if !MENU_SWITCH then
-      debounce()
+      switch_debounce()
       if !MENU_SWITCH then
          if !START_SWITCH then
-            debounce()
+            switch_debounce()
             if !START_SWITCH then
                active_switch = BOTH_SWITCH_ACTIVE
             else
@@ -185,10 +188,10 @@ function get_pressed_switch() return byte is
    ; are pressed, it can be that the start switch was pressed
    ; just before the menu switch was pressed.
    if !START_SWITCH then
-      debounce()
+      switch_debounce()
       if !START_SWITCH then
          if !MENU_SWITCH then
-            debounce()
+            switch_debounce()
             if !MENU_SWITCH then
                active_switch = BOTH_SWITCH_ACTIVE
             else

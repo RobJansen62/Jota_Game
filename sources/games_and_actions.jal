@@ -98,7 +98,6 @@ function walking_menu() return byte is
       end if 
 
    end loop
-   pet_dog() ; There was an action, prevent reset.
    wait_for_both_switches_released()
    LED_1_8 = ALL_OFF
 
@@ -133,7 +132,6 @@ procedure light_house() is
          delay_1ms(10)
       end loop 
    end loop
-   pet_dog() ; There was an action, prevent reset.     
    wait_for_both_switches_released()
 
 end procedure
@@ -175,7 +173,6 @@ procedure snake() is
          length = 1
       end if 
    end loop
-   pet_dog() ; There was an action, prevent reset.     
    wait_for_both_switches_released()
    LED_1_8 = ALL_OFF
 
@@ -233,7 +230,6 @@ procedure knight_rider() is
       ; Now go back.
       left_shift = !left_shift
    end loop
-   pet_dog() ; There was an action, prevent reset.     
    wait_for_both_switches_released()
    LED_1_8 = ALL_OFF
 
@@ -277,7 +273,6 @@ procedure simon_says() is
       index = 0
       while go_on & round_active & (index < difficulty) loop
          if start_switch_pressed() then
-            pet_dog() ; There was an action, prevent reset.     
             ; Check for long key press.
             timer = 0
             while !START_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
@@ -322,7 +317,6 @@ procedure simon_says() is
                wait_for_start_switch_released()
            end if 
          elsif menu_switch_pressed() then
-            pet_dog() ; There was an action, prevent reset.     
             ; Check for long key press.
             timer = 0
             while !MENU_SWITCH & (timer < LONG_KEY_PRESS_TIME) loop
@@ -442,7 +436,6 @@ procedure reaction_timer() is
    while go_on loop
       ; Now the start must be pressed.
       wait_for_start_switch_pressed()
-      pet_dog() ; There was an action, prevent reset.     
       wait_for_start_switch_released()
       LED_NOK = OFF
       LED_OK = OFF
@@ -578,7 +571,6 @@ procedure jota_game() is
       if round == count(REACTION_TIMES) then
          go_on = FALSE
       end if
-      pet_dog() ; There was an action, prevent reset.     
       wait_for_both_switches_released()
    end loop
    LED_OK = OFF
@@ -670,7 +662,6 @@ procedure pong() is
                put_led_on(7)
             else
                end_reached = TRUE
-               pet_dog() ; There was an action, prevent PIC reset.     
             end if 
          elsif ((led_value & 0b0000_0001) != 0) then
             ; We are at LED 1 (lsb) so we where shifting right.
@@ -688,7 +679,6 @@ procedure pong() is
                put_led_on(2)
             else
                end_reached = TRUE
-               pet_dog() ; There was an action, prevent PIC reset.     
             end if 
          else
             ; Not at the end, no switch must be pressed.
@@ -698,7 +688,6 @@ procedure pong() is
             end loop
             if (delay_timer != set_time) then
                ; A switch was pressed before the delay time. 
-               pet_dog() ; There was an action, prevent PIC reset.     
                in_time = FALSE
             end if 
             end_reached = FALSE
@@ -733,7 +722,6 @@ procedure pong() is
             if switch_pressed == MENU_SWITCH_ACTIVE then
                go_on = FALSE ; Exit game, else reset game.
             end if
-            pet_dog() ; There was an action, prevent PIC reset.     
             wait_for_both_switches_released()
          end if 
 
@@ -827,7 +815,6 @@ procedure morse_send() is
          while !encoder_ready() loop end loop
          encoder_send_message(toggle, my_address, IR_COMMAND_MORSE | led_data)
          transmit_message = FALSE
-         pet_dog() ; There was an action, prevent reset.     
       end if 
 
       ; Check if we need to turn off the OK LED. Note that we use
@@ -863,6 +850,8 @@ procedure morse_receive() is
    switch_pressed = get_pressed_switch()
    while (switch_pressed != BOTH_SWITCH_ACTIVE)  loop
       if decoder_message_received() then
+         ; In case of morse receive there is no switch activity, only 
+         ; infra-red so we must trigger the watchdog not to bite.
          pet_dog() ; There was an action, prevent reset.     
          ; Message received, check if this is for me. A broadcast message
          ; (address 0x00) is always accepted. We only accept morse
@@ -1021,7 +1010,6 @@ procedure battleship() is
 
       ; If we receive a message we need to update the display.
       if decoder_message_received() then
-         pet_dog() ; There was an action, prevent reset.     
          LED_1_8 = ship_value
          ; Message received, check if this is for me. 
          decoder_get_message(ir_toggle, ir_address, ir_data)
@@ -1071,7 +1059,6 @@ procedure battleship() is
       if (switch_pressed == BOTH_SWITCH_ACTIVE) then
          go_on = FALSE
       elsif (switch_pressed == START_SWITCH_ACTIVE) then
-         pet_dog() ; There was an action, prevent reset.   
          ; Show the current selected LED first.
          LED_1_8 = ALL_OFF
          put_led_on(led_number)
@@ -1095,8 +1082,6 @@ procedure battleship() is
          end if 
          display_timer = DISPLAY_TIME
       elsif (switch_pressed == MENU_SWITCH_ACTIVE) then
-         pet_dog() ; There was an action, prevent reset.   
-         pet_dog() ; There was an action, prevent reset.   
          ; Show the current selected LED first.
          LED_1_8 = ALL_OFF
          put_led_on(led_number)
@@ -1125,7 +1110,6 @@ procedure battleship() is
       ; received by the other side.
       retry_counter = 0
       if transmit_message then
-         pet_dog() ; There was an action, prevent reset.     
          command_data = IR_COMMAND_SHIP | led_number 
          ; Indicate the transmission. We do not yet know if it is 
          ; succesful or not so OK and NOK are switched on.
