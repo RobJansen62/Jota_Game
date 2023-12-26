@@ -94,6 +94,7 @@ function walking_menu() return byte is
       idle_counter = idle_counter + 1
       if (idle_counter == TICKS_UNTIL_WALKING_MENU_END) then
          counter = LED_1 ; Light house.
+         pet_dog() ; Needed to prevent reset.
          go_on = FALSE
       end if 
 

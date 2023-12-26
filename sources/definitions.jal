@@ -72,8 +72,8 @@ const word TICKS_UNTIL_RANDOM_LIGHT_END = 300 ; 1 minute
 
 ; Value used to determine when the walking menu stops and return the menu item
 ; for the light house. The light house value is returned after the number of times
-; the walking menu touches LED_1.
-const byte TICKS_UNTIL_WALKING_MENU_END = 15 ; About 2 minutes.
+; the walking menu touches LED_1. One cycle takes about 16 * 600 ms = 9.6 seconds.
+const byte TICKS_UNTIL_WALKING_MENU_END = 13 ; About 2 minutes.
 
 ; Value used to determine when the light house switches the power off. This is in
 ; 10 ms timer ticks, see the light house routine.

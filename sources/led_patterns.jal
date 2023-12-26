@@ -198,7 +198,7 @@ procedure random_light() is
          delay_1ms(10)
       end loop 
    end loop
-   pet_dog() ; There was an action, prevent reset.
+   pet_dog() ; Prevent reset in case no key was pressed.
    wait_for_both_switches_released()
    LED_1_8 = ALL_OFF
 
